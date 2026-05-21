@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投资回报率记录</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <header class="toolbar">
+            <h1>投资回报率记录</h1>
+        </header>
+
+        <main class="content">
+            <section class="metrics-bar">
+                <div class="metric-card">
+                    <span class="metric-label">年化收益率 (XIRR)</span>
+                    <span class="metric-value" id="xirr-value">--</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">累计投入</span>
+                    <span class="metric-value" id="total-invested">--</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">累计收回</span>
+                    <span class="metric-value" id="total-returned">--</span>
+                </div>
+            </section>
+
+            <div class="xirr-hint" id="xirr-hint" style="display:none">
+                <span class="xirr-hint-icon">💡</span>
+                <span>XIRR 需要已实现盈亏才能计算。对于仍在持有的投资品，请在持仓总览中补充<b>当前市值</b>，或新增一条「卖出」记录（现金流填当前估算市值）。</span>
+            </div>
+
+            <section class="panel holdings-panel" id="holdings-panel" style="display:none">
+                <div class="panel-header">
+                    <h2>持仓总览</h2>
+                </div>
+                <div class="holdings-grid" id="holdings-grid"></div>
+            </section>
+
+            <section class="filter-bar">
+                <div class="filter-row">
+                    <label>日期范围
+                        <input type="date" id="filter-start">
+                        <span class="filter-sep">至</span>
+                        <input type="date" id="filter-end">
+                    </label>
+                    <label>标的
+                        <input type="text" id="filter-symbol" placeholder="输入代码或名称搜索">
+                    </label>
+                    <label>业务类型
+                        <select id="filter-type">
+                            <option value="">全部</option>
+                            <option value="买入">买入</option>
+                            <option value="卖出">卖出</option>
+                            <option value="分红入账">分红入账</option>
+                            <option value="股息再投资">股息再投资</option>
+                            <option value="其他">其他</option>
+                        </select>
+                    </label>
+                    <div class="filter-actions">
+                        <button class="btn" id="btn-filter">筛选</button>
+                        <button class="btn" id="btn-reset-filter">重置</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <h2>交易记录</h2>
+                    <div class="panel-header-actions">
+                        <button class="btn" id="btn-import">导入 CSV</button>
+                        <button class="btn" id="btn-export">导出 CSV</button>
+                        <button class="btn btn-primary" id="btn-add">+ 新增记录</button>
+                    </div>
+                </div>
+                <table class="data-table" id="tx-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>标的</th>
+                            <th>业务类型</th>
+                            <th>现金流</th>
+                            <th>股数</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tx-tbody">
+                    </tbody>
+                </table>
+                <div class="pagination" id="pagination"></div>
+            </section>
+
+            <section class="panel chart-panel" id="chart-panel" style="display:none">
+                <div class="panel-header chart-tabs">
+                    <button class="chart-tab active" data-chart="cumulative">收益曲线</button>
+                    <button class="chart-tab" data-chart="holding">持仓分布</button>
+                </div>
+                <div class="chart-container" id="chart-cumulative"></div>
+                <div class="chart-container" id="chart-holding" style="display:none"></div>
+            </section>
+        </main>
+
+        <dialog id="tx-dialog">
+            <form id="tx-form" method="dialog">
+                <h3 id="dialog-title">新增交易记录</h3>
+                <input type="hidden" id="tx-id">
+                <label>日期
+                    <div class="date-input-group">
+                        <input type="text" id="tx-year" placeholder="年" maxlength="4" inputmode="numeric" required>
+                        <span class="date-sep">年</span>
+                        <input type="text" id="tx-month" placeholder="月" maxlength="2" inputmode="numeric" required>
+                        <span class="date-sep">月</span>
+                        <input type="text" id="tx-day" placeholder="日" maxlength="2" inputmode="numeric" required>
+                        <span class="date-sep">日</span>
+                    </div>
+                </label>
+                <label>标的 <input type="text" id="tx-symbol" placeholder="如 AAPL、易方达蓝筹" required></label>
+                <label>业务类型
+                    <select id="tx-type" required>
+                        <option value="">请选择</option>
+                        <option value="买入">买入</option>
+                        <option value="卖出">卖出</option>
+                        <option value="分红入账">分红入账</option>
+                        <option value="股息再投资">股息再投资</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </label>
+                <label>现金流
+                    <input type="number" id="tx-cashflow" step="0.01" placeholder="买入填负数，卖出/分红填正数" required>
+                </label>
+                <label>股数（可选） <input type="number" id="tx-shares" step="0.01"></label>
+                <label>成交价（可选） <input type="number" id="tx-price" step="0.01"></label>
+                <label>市值（可选） <input type="number" id="tx-market-value" step="0.01"></label>
+                <label>备注 <input type="text" id="tx-notes"></label>
+                <div class="dialog-actions">
+                    <button type="button" class="btn" id="btn-cancel">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </dialog>
+
+        <input type="file" id="import-file-input" accept=".csv" style="display:none">
+
+        <dialog id="import-preview-dialog">
+            <div id="import-preview-content">
+                <h3>CSV 导入预览</h3>
+                <div class="import-summary" id="import-summary"></div>
+                <div class="import-table-wrap">
+                    <table class="data-table" id="import-preview-table">
+                        <thead id="import-preview-head"></thead>
+                        <tbody id="import-preview-body"></tbody>
+                    </table>
+                </div>
+                <div class="import-errors" id="import-errors" style="display:none"></div>
+                <div class="dialog-actions">
+                    <button type="button" class="btn" id="btn-import-cancel">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-import-confirm">确认导入</button>
+                </div>
+            </div>
+        </dialog>
+
+        <dialog id="import-result-dialog">
+            <div id="import-result-content">
+                <h3>导入完成</h3>
+                <p id="import-result-msg"></p>
+                <div class="dialog-actions">
+                    <button type="button" class="btn btn-primary" id="btn-import-close">确定</button>
+                </div>
+            </div>
+        </dialog>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
