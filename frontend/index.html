@@ -72,6 +72,7 @@
                 <div class="panel-header">
                     <h2>交易记录</h2>
                     <div class="panel-header-actions">
+                        <button class="btn" id="btn-ocr">OCR 识别</button>
                         <button class="btn" id="btn-import">导入 CSV</button>
                         <button class="btn" id="btn-export">导出 CSV</button>
                         <button class="btn btn-primary" id="btn-add">+ 新增记录</button>
@@ -144,6 +145,43 @@
         </dialog>
 
         <input type="file" id="import-file-input" accept=".csv" style="display:none">
+        <input type="file" id="ocr-file-input" accept="image/*" style="display:none">
+
+        <dialog id="ocr-dialog">
+            <div id="ocr-content">
+                <h3>OCR 截图识别</h3>
+                <div class="ocr-layout">
+                    <div class="ocr-image-pane">
+                        <img id="ocr-preview-img" alt="截图预览">
+                    </div>
+                    <div class="ocr-text-pane">
+                        <h4>识别文字</h4>
+                        <pre id="ocr-raw-text"></pre>
+                    </div>
+                </div>
+                <div class="ocr-fields">
+                    <label>日期 <input type="text" id="ocr-date"></label>
+                    <label>标的 <input type="text" id="ocr-symbol"></label>
+                    <label>业务类型
+                        <select id="ocr-type">
+                            <option value="">请选择</option>
+                            <option value="买入">买入</option>
+                            <option value="卖出">卖出</option>
+                            <option value="分红入账">分红入账</option>
+                            <option value="股息再投资">股息再投资</option>
+                            <option value="其他">其他</option>
+                        </select>
+                    </label>
+                    <label>现金流 <input type="number" id="ocr-cashflow" step="0.01"></label>
+                    <label>股数 <input type="number" id="ocr-shares" step="0.01"></label>
+                    <label>成交价 <input type="number" id="ocr-price" step="0.01"></label>
+                </div>
+                <div class="dialog-actions">
+                    <button type="button" class="btn" id="btn-ocr-cancel">取消</button>
+                    <button type="button" class="btn btn-primary" id="btn-ocr-confirm">确认录入</button>
+                </div>
+            </div>
+        </dialog>
 
         <dialog id="import-preview-dialog">
             <div id="import-preview-content">

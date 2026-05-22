@@ -530,6 +530,96 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
     fetchPortfolio(); // re-render with updated colors
 });
 
+// --- OCR ---
+const ocrFileInput = document.getElementById('ocr-file-input');
+const ocrDialog = document.getElementById('ocr-dialog');
+const ocrPreviewImg = document.getElementById('ocr-preview-img');
+const ocrRawText = document.getElementById('ocr-raw-text');
+let ocrBlobUrl = null;
+
+function triggerOCR() {
+    ocrFileInput.value = '';
+    ocrFileInput.click();
+}
+
+async function handleOCRFile(file) {
+    // Show image preview immediately
+    if (ocrBlobUrl) URL.revokeObjectURL(ocrBlobUrl);
+    ocrBlobUrl = URL.createObjectURL(file);
+    ocrPreviewImg.src = ocrBlobUrl;
+    ocrRawText.textContent = '识别中...';
+
+    // Clear fields
+    document.getElementById('ocr-date').value = '';
+    document.getElementById('ocr-symbol').value = '';
+    document.getElementById('ocr-type').value = '';
+    document.getElementById('ocr-cashflow').value = '';
+    document.getElementById('ocr-shares').value = '';
+    document.getElementById('ocr-price').value = '';
+
+    ocrDialog.showModal();
+
+    // Upload and OCR
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const resp = await fetch('/api/ocr', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.success && data.parsed) {
+            ocrRawText.textContent = data.raw_text || '(无文字)';
+            const p = data.parsed;
+            if (p.date) document.getElementById('ocr-date').value = p.date;
+            if (p.symbol) document.getElementById('ocr-symbol').value = p.symbol;
+            if (p.business_type) document.getElementById('ocr-type').value = p.business_type;
+            if (p.cash_flow != null) document.getElementById('ocr-cashflow').value = p.cash_flow;
+            if (p.shares != null) document.getElementById('ocr-shares').value = p.shares;
+            if (p.price != null) document.getElementById('ocr-price').value = p.price;
+        } else {
+            ocrRawText.textContent = data.raw_text || 'OCR 识别失败，请尝试更清晰的截图';
+        }
+    } catch (err) {
+        ocrRawText.textContent = 'OCR 服务不可用。请确认已安装 Tesseract：brew install tesseract tesseract-lang';
+    }
+}
+
+async function confirmOCR() {
+    const body = {
+        date: document.getElementById('ocr-date').value,
+        symbol: document.getElementById('ocr-symbol').value.trim(),
+        business_type: document.getElementById('ocr-type').value,
+        cash_flow: parseFloat(document.getElementById('ocr-cashflow').value),
+        shares: document.getElementById('ocr-shares').value || null,
+        price: document.getElementById('ocr-price').value || null,
+    };
+    if (!body.date || !body.symbol || !body.business_type || isNaN(body.cash_flow)) {
+        alert('请填写日期、标的、业务类型和现金流');
+        return;
+    }
+    if (body.shares !== null) body.shares = parseFloat(body.shares);
+    if (body.price !== null) body.price = parseFloat(body.price);
+
+    const resp = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+        ocrDialog.close();
+        fetchTransactions(currentPage);
+        fetchMetrics();
+        fetchPortfolio();
+    }
+}
+
+document.getElementById('btn-ocr').addEventListener('click', triggerOCR);
+ocrFileInput.addEventListener('change', function() {
+    if (this.files && this.files[0]) {
+        handleOCRFile(this.files[0]);
+    }
+});
+document.getElementById('btn-ocr-confirm').addEventListener('click', confirmOCR);
+document.getElementById('btn-ocr-cancel').addEventListener('click', () => ocrDialog.close());
+
 // Init
 fetchTransactions();
 fetchMetrics();

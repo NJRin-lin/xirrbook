@@ -520,3 +520,94 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
     width: 100%;
     height: 380px;
 }
+
+/* OCR dialog */
+#ocr-content {
+    padding: 24px;
+    min-width: 620px;
+    max-width: 780px;
+}
+
+#ocr-content h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+
+.ocr-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.ocr-image-pane {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg);
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ocr-image-pane img {
+    max-width: 100%;
+    max-height: 260px;
+    object-fit: contain;
+}
+
+.ocr-text-pane h4 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.ocr-text-pane pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 12px;
+    font-family: "SF Mono", "Menlo", "Monaco", monospace;
+    color: var(--text);
+    background: var(--bg);
+    padding: 10px;
+    border-radius: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.ocr-fields {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px 14px;
+    margin-bottom: 4px;
+}
+
+.ocr-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.ocr-fields input, .ocr-fields select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--bg);
+    color: var(--text);
+}
+
+.ocr-fields input:focus, .ocr-fields select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,113,227,0.15);
+}
