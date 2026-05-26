@@ -31,47 +31,74 @@ def _ensure_pillow():
 
 
 def ocr_image(file_bytes: bytes, lang: str = "chi_sim+eng") -> str:
+    # 1. Try Apple Vision (much better Chinese accuracy, built into macOS)
+    text = _ocr_vision(file_bytes)
+    if text and len(text.strip()) > 10:
+        return text
+
+    # 2. Fallback to Tesseract
+    return _ocr_tesseract(file_bytes, lang)
+
+
+def _ocr_vision(file_bytes: bytes) -> str:
+    """Use macOS Vision framework via Swift helper for OCR."""
+    import subprocess
+    import tempfile
+    import os
+
+    swift_script = os.path.join(os.path.dirname(__file__), "vision_ocr.swift")
+    if not os.path.exists(swift_script):
+        return ""
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        result = subprocess.run(
+            ["swift", swift_script, tmp_path],
+            capture_output=True, text=True, timeout=60
+        )
+        os.unlink(tmp_path)
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _ocr_tesseract(file_bytes: bytes, lang: str) -> str:
+    """Fallback OCR using Tesseract."""
     if not _ensure_tesseract():
         return ""
     if not _ensure_pillow():
         return ""
 
     import pytesseract
-    from PIL import ImageFilter, ImageOps
+    from PIL import ImageFilter
 
     img = _Image.open(io.BytesIO(file_bytes))
 
-    # Scale up for better accuracy (Tesseract works best at ~300 DPI equivalent)
     w, h = img.size
     if max(w, h) < 1200:
         scale = 1800 / max(w, h)
         img = img.resize((int(w * scale), int(h * scale)), _Image.LANCZOS)
 
-    # Convert to grayscale
     img = img.convert("L")
-
-    # Binarize: use threshold to make text pure black on white background
-    # This is better than grayscale for Chinese text recognition
     img = img.point(lambda x: 0 if x < 140 else 255)
-
-    # Sharpen to make character edges crisper
     img = img.filter(ImageFilter.SHARPEN)
 
-    # PSM 6: assume uniform block of text, reads left-to-right, top-to-bottom
-    # This prevents column-wise reading that breaks table data
     text = pytesseract.image_to_string(
         img, lang=lang,
         config="--psm 6 -c tessedit_char_whitelist=0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ一-鿿,.+-¥￥()（）/年月日买买入卖出申购赎回认购分红红利股利派息股息再投数量份额股成交价价格金额元"
     )
-
     return text
 
 
 # --- Field extraction from OCR text ---
 
 DATE_PATTERNS = [
-    re.compile(r"(\d{4})[年/-](\d{1,2})[月/-](\d{1,2})[日]?"),
+    re.compile(r"(\d{4})[:：年/-](\d{1,2})[:：月/-](\d{1,2})[日]?"),
     re.compile(r"(\d{4})(\d{2})(\d{2})"),  # 20250521 compact
+    re.compile(r"(\d{4})(\d{2})[-:/](\d{2})"),  # 202402-20 (Vision format)
 ]
 
 AMOUNT_PATTERNS = [
@@ -257,11 +284,13 @@ def _extract_amounts_from_lines(lines):
 
 
 def _extract_symbol(lines, full_text):
-    # Prefer 6-digit stock code
+    # Prefer 6-digit stock code (exclude date-like patterns: 2020xx-2030xx)
     for line in lines:
         m = STOCK_CODE.search(line)
         if m:
-            return m.group(1)
+            code = m.group(1)
+            if not (code.startswith("202") or code.startswith("203")):
+                return code
     # Fallback: ticker
     exclude = {"ETF", "LOF", "FOF", "A", "B", "C", "E"}
     for line in lines:
