@@ -114,6 +114,13 @@ def get_transaction(transaction_id: int):
 def create_transaction(data: dict):
     conn = get_db()
     cursor = conn.cursor()
+    biz_type = data.get("business_type") or None
+    cash_flow = data.get("cash_flow")
+    # Market-value-only records: no cash flow, just tracking current value
+    if cash_flow is None and data.get("market_value") is not None:
+        cash_flow = 0.0
+        biz_type = biz_type or "市值更新"
+
     cursor.execute(
         """INSERT INTO transactions (account_id, date, symbol, business_type, cash_flow, shares, price, market_value, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -121,8 +128,8 @@ def create_transaction(data: dict):
             data.get("account_id", 1),
             data["date"],
             data["symbol"],
-            data["business_type"],
-            data["cash_flow"],
+            biz_type,
+            cash_flow or 0.0,
             data.get("shares"),
             data.get("price"),
             data.get("market_value"),
@@ -221,6 +228,18 @@ def update_transaction(transaction_id: int, data: dict):
     row = cursor.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
     conn.close()
     return dict(row)
+
+
+@router.delete("")
+def clear_all_transactions():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM transactions")
+    cursor.execute("DELETE FROM sqlite_sequence WHERE name='transactions'")
+    conn.commit()
+    deleted = cursor.rowcount if hasattr(cursor, 'rowcount') else 0
+    conn.close()
+    return {"deleted_all": True, "note": "所有交易记录已清空"}
 
 
 @router.delete("/{transaction_id}")

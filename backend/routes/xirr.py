@@ -29,13 +29,21 @@ def xirr(cashflows: list) -> Optional[float]:
         times.append((d - ref_date).days / 365.0)
 
     def npv(rate):
-        # Guard: (1+rate) must stay positive for meaningful power calculations
-        base = max(1e-10, 1 + rate)
+        base = 1 + rate
+        if base <= 0:
+            return float('inf')
         return sum(amt / base ** t for t, amt in zip(times, amounts))
 
-    # Secant method (no fprime) — more robust near singularities.
-    # Try diverse initial guesses from deeply negative to high positive.
-    for guess in [0.1, -0.3, -0.6, -0.8, -0.9, -0.95, 0.3, 0.5, 0.0, -0.98]:
+    # Try bounded brentq first (most robust), then newton secant fallback
+    try:
+        from scipy.optimize import brentq
+        rate = brentq(npv, -0.9999, 10.0, maxiter=200, xtol=1e-8)
+        if -0.999 < rate < 100:
+            return rate
+    except (ValueError, RuntimeError):
+        pass
+
+    for guess in [0.1, -0.3, -0.6, -0.8, -0.9, -0.95, 0.3, 0.5, 0.0, -0.98, 2.0]:
         try:
             rate = newton(npv, guess, maxiter=200, tol=1e-8)
             if -0.999 < rate < 100:

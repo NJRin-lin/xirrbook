@@ -55,7 +55,11 @@ txMonth.addEventListener('input', function() {
 });
 
 txMonth.addEventListener('blur', function() {
-    if (this.value && parseInt(this.value, 10) < 1) this.value = '01';
+    const v = parseInt(this.value, 10);
+    if (this.value && !isNaN(v)) {
+        if (v < 1) this.value = '01';
+        else if (v <= 9 && this.value.length === 1) this.value = '0' + v;  // "3" → "03"
+    }
 });
 
 txDay.addEventListener('input', function() {
@@ -64,12 +68,85 @@ txDay.addEventListener('input', function() {
     if (v > 31) this.value = '31';
 });
 
-// Enter key on day field submits form
-txDay.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        form.dispatchEvent(new Event('submit', { cancelable: true }));
+txDay.addEventListener('blur', function() {
+    const v = parseInt(this.value, 10);
+    if (this.value && !isNaN(v) && v <= 9 && this.value.length === 1) {
+        this.value = '0' + v;  // "5" → "05"
     }
+});
+
+// --- Form field navigation (Enter to tab) ---
+const formFieldOrder = [txYear, txMonth, txDay,
+    document.getElementById('tx-symbol'),
+    document.getElementById('tx-type'),
+    document.getElementById('tx-cashflow'),
+    document.getElementById('tx-market-value'),
+    document.getElementById('tx-notes')];
+
+const cashFlowLabel = document.getElementById('tx-cashflow-label');
+const mvLabel = document.getElementById('tx-market-value-label');
+
+// Show/hide fields and toggle visual minus prefix based on business type
+function applyTypeVisibility(typeVal, isEditing) {
+    const cfInput = document.getElementById('tx-cashflow');
+    if (typeVal === '当前市值') {
+        cashFlowLabel.style.display = 'none';
+        mvLabel.style.display = '';
+        cashFlowLabel.classList.remove('cash-outflow');
+    } else {
+        cashFlowLabel.style.display = '';
+        mvLabel.style.display = 'none';
+        if (typeVal === '买入' || typeVal === '股息再投资') {
+            cashFlowLabel.classList.add('cash-outflow');
+            cfInput.placeholder = '输入正数，自动记为支出';
+        } else {
+            cashFlowLabel.classList.remove('cash-outflow');
+            cfInput.placeholder = '卖出/分红填正数';
+        }
+    }
+}
+
+document.getElementById('tx-type').addEventListener('change', function() {
+    applyTypeVisibility(this.value);
+});
+
+
+// Enter key: tab to next field, validate at business type, save at notes
+formFieldOrder.forEach((field, idx) => {
+    field.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+
+        // If on business type:
+        if (field === document.getElementById('tx-type')) {
+            if (!this.value) {
+                this.style.borderColor = 'var(--danger)';
+                this.style.boxShadow = '0 0 0 3px rgba(255,59,48,0.2)';
+                return;
+            }
+            this.style.borderColor = '';
+            this.style.boxShadow = '';
+            // Apply field visibility and auto-minus immediately
+            applyTypeVisibility(this.value);
+        }
+
+        // Skip hidden fields (cash flow hidden when 当前市值 selected)
+        let nextIdx = idx + 1;
+        while (nextIdx < formFieldOrder.length) {
+            const next = formFieldOrder[nextIdx];
+            if (next.offsetParent !== null) break; // visible
+            nextIdx++;
+        }
+
+        // Last field (notes) or beyond: submit if no more visible fields
+        if (nextIdx >= formFieldOrder.length) {
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+            return;
+        }
+
+        formFieldOrder[nextIdx].focus();
+        if (formFieldOrder[nextIdx].select) formFieldOrder[nextIdx].select();
+    });
 });
 
 function getFilterParams() {
@@ -138,9 +215,9 @@ async function fetchTransactions(page = 1) {
             <tr>
                 <td>${tx.date}</td>
                 <td>${tx.symbol}</td>
-                <td>${tx.business_type}</td>
-                <td>${formatCash(tx.cash_flow)}</td>
-                <td>${tx.shares != null ? tx.shares : '--'}</td>
+                <td>${tx.business_type || '--'}</td>
+                <td>${tx.cash_flow != null ? formatCash(tx.cash_flow) : '--'}</td>
+                <td>${tx.market_value != null ? '¥' + tx.market_value.toLocaleString() : '--'}</td>
                 <td>
                     <button class="btn btn-edit" data-id="${tx.id}">编辑</button>
                     <button class="btn btn-danger btn-delete" data-id="${tx.id}">删除</button>
@@ -163,6 +240,10 @@ function resetForm() {
     document.getElementById('tx-id').value = '';
     form.reset();
     clearDateFields();
+    cashFlowLabel.style.display = '';
+    mvLabel.style.display = 'none';
+    document.getElementById('tx-type').style.borderColor = '';
+    document.getElementById('tx-type').style.boxShadow = '';
 }
 
 function openEdit(tx) {
@@ -171,24 +252,39 @@ function openEdit(tx) {
     document.getElementById('tx-id').value = tx.id;
     setDateFields(tx.date);
     document.getElementById('tx-symbol').value = tx.symbol;
-    document.getElementById('tx-type').value = tx.business_type;
-    document.getElementById('tx-cashflow').value = tx.cash_flow;
-    document.getElementById('tx-shares').value = tx.shares ?? '';
-    document.getElementById('tx-price').value = tx.price ?? '';
+    document.getElementById('tx-type').value = tx.business_type || '';
+    document.getElementById('tx-cashflow').value = tx.cash_flow != null ? Math.abs(tx.cash_flow) : '';
     document.getElementById('tx-market-value').value = tx.market_value ?? '';
     document.getElementById('tx-notes').value = tx.notes ?? '';
     dialog.showModal();
+    applyTypeVisibility(tx.business_type || '', true);
 }
 
 function getFormData() {
+    const bizType = document.getElementById('tx-type').value;
+    const cashRaw = document.getElementById('tx-cashflow').value;
+    const mvRaw = document.getElementById('tx-market-value').value;
+
+    let cashFlow = cashRaw ? parseFloat(cashRaw) : null;
+    let marketValue = mvRaw ? parseFloat(mvRaw) : null;
+
+    // 当前市值: auto-use market value as positive cash flow
+    if (bizType === '当前市值') {
+        cashFlow = marketValue != null ? Math.abs(marketValue) : null;
+    } else if (cashFlow != null && (bizType === '买入' || bizType === '股息再投资')) {
+        // Auto-negate for buy and drip (outflows)
+        cashFlow = -Math.abs(cashFlow);
+    } else if (marketValue != null && cashFlow == null) {
+        // Market value filled without type: use as cash flow
+        cashFlow = marketValue;
+    }
+
     return {
         date: getAssembledDate(),
         symbol: document.getElementById('tx-symbol').value.trim(),
-        business_type: document.getElementById('tx-type').value,
-        cash_flow: parseFloat(document.getElementById('tx-cashflow').value),
-        shares: document.getElementById('tx-shares').value || null,
-        price: document.getElementById('tx-price').value || null,
-        market_value: document.getElementById('tx-market-value').value || null,
+        business_type: bizType || (marketValue != null ? '其他' : null),
+        cash_flow: cashFlow,
+        market_value: marketValue,
         notes: document.getElementById('tx-notes').value.trim() || null,
     };
 }
@@ -324,9 +420,10 @@ btnCancel.addEventListener('click', () => {
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = getFormData();
-    if (body.shares !== null) body.shares = parseFloat(body.shares);
-    if (body.price !== null) body.price = parseFloat(body.price);
-    if (body.market_value !== null) body.market_value = parseFloat(body.market_value);
+    if (!body.date || !body.symbol) {
+        alert('请填写日期和标的');
+        return;
+    }
 
     const url = editingId ? `${API}/${editingId}` : API;
     const method = editingId ? 'PUT' : 'POST';
@@ -368,6 +465,16 @@ document.addEventListener('click', (e) => {
 document.getElementById('btn-filter').addEventListener('click', applyFilters);
 document.getElementById('btn-reset-filter').addEventListener('click', resetFilters);
 document.getElementById('btn-export').addEventListener('click', exportCSV);
+
+document.getElementById('btn-clear-all').addEventListener('click', async () => {
+    if (!confirm('确定要清空所有交易记录吗？此操作不可恢复。')) return;
+    const resp = await fetch(API, { method: 'DELETE' });
+    if (resp.ok) {
+        fetchTransactions(1);
+        fetchMetrics();
+        fetchPortfolio();
+    }
+});
 
 // --- Portfolio & Charts ---
 let chartCumulative = null;
@@ -536,46 +643,98 @@ const ocrDialog = document.getElementById('ocr-dialog');
 const ocrPreviewImg = document.getElementById('ocr-preview-img');
 const ocrRawText = document.getElementById('ocr-raw-text');
 let ocrBlobUrl = null;
+let ocrRecords = [];
+
+const BTYPE_OPTIONS = ['', '买入', '卖出', '分红入账', '股息再投资', '当前市值', '其他'];
 
 function triggerOCR() {
     ocrFileInput.value = '';
     ocrFileInput.click();
 }
 
+function renderOCRRecords(records, globalSymbol) {
+    ocrRecords = records;
+    const tbody = document.getElementById('ocr-records-body');
+    document.getElementById('ocr-record-count').textContent = `（共 ${records.length} 条）`;
+
+    // Set global symbol
+    const symInput = document.getElementById('ocr-global-symbol');
+    symInput.value = globalSymbol || '';
+
+    tbody.innerHTML = records.map((r, i) => `
+        <tr>
+            <td><input type="text" value="${r.date || ''}" data-idx="${i}" data-field="date" placeholder="YYYY-MM-DD"></td>
+            <td><input type="text" value="${r.symbol || ''}" data-idx="${i}" data-field="symbol"></td>
+            <td><select data-idx="${i}" data-field="business_type">
+                ${BTYPE_OPTIONS.map(opt => `<option value="${opt}" ${(r.business_type || '') === opt ? 'selected' : ''}>${opt || '请选择'}</option>`).join('')}
+            </select></td>
+            <td><input type="number" step="0.01" value="${r.cash_flow != null ? r.cash_flow : ''}" data-idx="${i}" data-field="cash_flow"></td>
+            <td><input type="number" step="0.01" value="${r.shares != null ? r.shares : ''}" data-idx="${i}" data-field="shares"></td>
+            <td><input type="number" step="0.01" value="${r.price != null ? r.price : ''}" data-idx="${i}" data-field="price"></td>
+            <td><button class="btn btn-danger ocr-del-row" data-idx="${i}" title="删除此条">&times;</button></td>
+        </tr>
+    `).join('');
+
+    // Delete row buttons
+    tbody.querySelectorAll('.ocr-del-row').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const idx = parseInt(this.dataset.idx);
+            ocrRecords.splice(idx, 1);
+            // Re-render with current global symbol
+            const sym = document.getElementById('ocr-global-symbol').value;
+            renderOCRRecords(ocrRecords, sym);
+        });
+    });
+
+    // When global symbol changes, sync to all records
+    symInput.oninput = function() {
+        const val = this.value.trim();
+        document.querySelectorAll('#ocr-records-body input[data-field="symbol"]').forEach(el => {
+            el.value = val;
+        });
+        ocrRecords.forEach(r => { r.symbol = val || null; });
+    };
+}
+
+// Sync edits back to ocrRecords
+document.addEventListener('change', function(e) {
+    const el = e.target.closest('[data-idx]');
+    if (!el) return;
+    const idx = parseInt(el.dataset.idx);
+    const field = el.dataset.field;
+    if (ocrRecords[idx]) {
+        let val = el.value;
+        if (field === 'cash_flow' || field === 'shares' || field === 'price') {
+            val = val === '' ? null : parseFloat(val);
+        }
+        ocrRecords[idx][field] = val;
+    }
+});
+
 async function handleOCRFile(file) {
-    // Show image preview immediately
     if (ocrBlobUrl) URL.revokeObjectURL(ocrBlobUrl);
     ocrBlobUrl = URL.createObjectURL(file);
     ocrPreviewImg.src = ocrBlobUrl;
     ocrRawText.textContent = '识别中...';
-
-    // Clear fields
-    document.getElementById('ocr-date').value = '';
-    document.getElementById('ocr-symbol').value = '';
-    document.getElementById('ocr-type').value = '';
-    document.getElementById('ocr-cashflow').value = '';
-    document.getElementById('ocr-shares').value = '';
-    document.getElementById('ocr-price').value = '';
+    document.getElementById('ocr-records-body').innerHTML = '';
+    document.getElementById('ocr-record-count').textContent = '';
 
     ocrDialog.showModal();
 
-    // Upload and OCR
     const formData = new FormData();
     formData.append('file', file);
     try {
         const resp = await fetch('/api/ocr', { method: 'POST', body: formData });
         const data = await resp.json();
-        if (data.success && data.parsed) {
+        if (data.success) {
             ocrRawText.textContent = data.raw_text || '(无文字)';
-            const p = data.parsed;
-            if (p.date) document.getElementById('ocr-date').value = p.date;
-            if (p.symbol) document.getElementById('ocr-symbol').value = p.symbol;
-            if (p.business_type) document.getElementById('ocr-type').value = p.business_type;
-            if (p.cash_flow != null) document.getElementById('ocr-cashflow').value = p.cash_flow;
-            if (p.shares != null) document.getElementById('ocr-shares').value = p.shares;
-            if (p.price != null) document.getElementById('ocr-price').value = p.price;
+            const records = data.records && data.records.length > 0 ? data.records
+                : data.parsed ? [data.parsed] : [];
+            // Prefer parsed.symbol as global (from fund name header)
+            const globalSym = data.parsed ? data.parsed.symbol : null;
+            renderOCRRecords(records, globalSym);
         } else {
-            ocrRawText.textContent = data.raw_text || 'OCR 识别失败，请尝试更清晰的截图';
+            ocrRawText.textContent = data.raw_text || 'OCR 识别失败';
         }
     } catch (err) {
         ocrRawText.textContent = 'OCR 服务不可用。请确认已安装 Tesseract：brew install tesseract tesseract-lang';
@@ -583,32 +742,36 @@ async function handleOCRFile(file) {
 }
 
 async function confirmOCR() {
-    const body = {
-        date: document.getElementById('ocr-date').value,
-        symbol: document.getElementById('ocr-symbol').value.trim(),
-        business_type: document.getElementById('ocr-type').value,
-        cash_flow: parseFloat(document.getElementById('ocr-cashflow').value),
-        shares: document.getElementById('ocr-shares').value || null,
-        price: document.getElementById('ocr-price').value || null,
-    };
-    if (!body.date || !body.symbol || !body.business_type || isNaN(body.cash_flow)) {
-        alert('请填写日期、标的、业务类型和现金流');
-        return;
+    if (!ocrRecords.length) return;
+    const globalSym = document.getElementById('ocr-global-symbol').value.trim();
+    let imported = 0;
+    for (const r of ocrRecords) {
+        const sym = r.symbol || globalSym;
+        if (!r.date || !sym || r.cash_flow == null) continue;
+        let cf = r.cash_flow;
+        if (r.business_type === '买入' || r.business_type === '股息再投资') {
+            cf = -Math.abs(cf);
+        }
+        const body = {
+            date: r.date,
+            symbol: sym,
+            business_type: r.business_type || undefined,
+            cash_flow: cf,
+            shares: r.shares || undefined,
+            price: r.price || undefined,
+        };
+        const resp = await fetch(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (resp.ok) imported++;
     }
-    if (body.shares !== null) body.shares = parseFloat(body.shares);
-    if (body.price !== null) body.price = parseFloat(body.price);
-
-    const resp = await fetch(API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (resp.ok) {
-        ocrDialog.close();
-        fetchTransactions(currentPage);
-        fetchMetrics();
-        fetchPortfolio();
-    }
+    ocrDialog.close();
+    alert(`成功导入 ${imported} 条记录`);
+    fetchTransactions(1);
+    fetchMetrics();
+    fetchPortfolio();
 }
 
 document.getElementById('btn-ocr').addEventListener('click', triggerOCR);

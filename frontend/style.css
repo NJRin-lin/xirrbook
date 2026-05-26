@@ -254,6 +254,7 @@ dialog {
     border: none;
     border-radius: 12px;
     padding: 0;
+    margin: auto;
     background: var(--card-bg);
     color: var(--text);
     box-shadow: 0 8px 40px rgba(0,0,0,0.2);
@@ -299,6 +300,41 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(0,113,227,0.15);
+}
+
+/* Cash outflow visual minus prefix */
+.cf-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+}
+
+.cf-input-wrap input {
+    flex: 1;
+    min-width: 0;
+}
+
+.cf-input-wrap::before {
+    content: '';
+    display: none;
+}
+
+.cash-outflow .cf-input-wrap::before {
+    content: '-';
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 33px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--danger);
+    flex-shrink: 0;
+}
+
+.cash-outflow .cf-input-wrap input {
+    flex: 1;
 }
 
 /* Date input group */
@@ -524,8 +560,13 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
 /* OCR dialog */
 #ocr-content {
     padding: 24px;
-    min-width: 620px;
-    max-width: 780px;
+    min-width: 820px;
+    max-width: 95vw;
+}
+
+#ocr-dialog {
+    min-width: 820px;
+    max-width: 95vw;
 }
 
 #ocr-content h3 {
@@ -554,7 +595,7 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
 
 .ocr-image-pane img {
     max-width: 100%;
-    max-height: 260px;
+    max-height: 420px;
     object-fit: contain;
 }
 
@@ -574,40 +615,67 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
     background: var(--bg);
     padding: 10px;
     border-radius: 6px;
-    max-height: 260px;
+    max-height: 420px;
     overflow-y: auto;
 }
 
-.ocr-fields {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px 14px;
-    margin-bottom: 4px;
+/* Symbol bar above records */
+.ocr-symbol-bar {
+    margin: 12px 0 8px;
 }
 
-.ocr-fields label {
+.ocr-symbol-bar label {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 11px;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
 }
 
-.ocr-fields input, .ocr-fields select {
+.ocr-symbol-bar input {
     padding: 7px 10px;
     border: 1px solid var(--border);
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 14px;
     font-family: inherit;
     background: var(--bg);
     color: var(--text);
+    width: 280px;
 }
 
-.ocr-fields input:focus, .ocr-fields select:focus {
+.ocr-symbol-bar input:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(0,113,227,0.15);
+}
+
+.ocr-records-section { margin-top: 8px; }
+
+.ocr-records-section h4 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.ocr-records-section .import-table-wrap { max-height: 240px; }
+
+.ocr-records-table input, .ocr-records-table select {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    background: transparent;
+    color: var(--text);
+}
+
+.ocr-records-table input:hover, .ocr-records-table select:hover { border-color: var(--border); }
+
+.ocr-records-table input:focus, .ocr-records-table select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--bg);
 }

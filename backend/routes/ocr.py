@@ -35,5 +35,6 @@ async def ocr_upload(file: UploadFile = File(...)):
             "shares": parsed.get("shares"),
             "price": parsed.get("price"),
         },
+        "records": parsed.get("records", []),
         "raw_lines": parsed.get("raw_lines", []),
     }

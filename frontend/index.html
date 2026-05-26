@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>投资回报率记录</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=7">
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
@@ -58,6 +58,7 @@
                             <option value="卖出">卖出</option>
                             <option value="分红入账">分红入账</option>
                             <option value="股息再投资">股息再投资</option>
+                            <option value="当前市值">当前市值</option>
                             <option value="其他">其他</option>
                         </select>
                     </label>
@@ -75,6 +76,7 @@
                         <button class="btn" id="btn-ocr">OCR 识别</button>
                         <button class="btn" id="btn-import">导入 CSV</button>
                         <button class="btn" id="btn-export">导出 CSV</button>
+                        <button class="btn btn-danger" id="btn-clear-all">一键清空</button>
                         <button class="btn btn-primary" id="btn-add">+ 新增记录</button>
                     </div>
                 </div>
@@ -85,7 +87,7 @@
                             <th>标的</th>
                             <th>业务类型</th>
                             <th>现金流</th>
-                            <th>股数</th>
+                            <th>市值</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -106,7 +108,7 @@
         </main>
 
         <dialog id="tx-dialog">
-            <form id="tx-form" method="dialog">
+            <form id="tx-form">
                 <h3 id="dialog-title">新增交易记录</h3>
                 <input type="hidden" id="tx-id">
                 <label>日期
@@ -127,15 +129,16 @@
                         <option value="卖出">卖出</option>
                         <option value="分红入账">分红入账</option>
                         <option value="股息再投资">股息再投资</option>
+                        <option value="当前市值">当前市值</option>
                         <option value="其他">其他</option>
                     </select>
                 </label>
-                <label>现金流
-                    <input type="number" id="tx-cashflow" step="0.01" placeholder="买入填负数，卖出/分红填正数" required>
+                <label id="tx-cashflow-label">现金流
+                    <span class="cf-input-wrap">
+                        <input type="number" id="tx-cashflow" step="0.01" placeholder="买入/股息再投资填正数，自动转负">
+                    </span>
                 </label>
-                <label>股数（可选） <input type="number" id="tx-shares" step="0.01"></label>
-                <label>成交价（可选） <input type="number" id="tx-price" step="0.01"></label>
-                <label>市值（可选） <input type="number" id="tx-market-value" step="0.01"></label>
+                <label id="tx-market-value-label">当前市值 <input type="number" id="tx-market-value" step="0.01" placeholder="填写后可留空现金流"></label>
                 <label>备注 <input type="text" id="tx-notes"></label>
                 <div class="dialog-actions">
                     <button type="button" class="btn" id="btn-cancel">取消</button>
@@ -159,26 +162,31 @@
                         <pre id="ocr-raw-text"></pre>
                     </div>
                 </div>
-                <div class="ocr-fields">
-                    <label>日期 <input type="text" id="ocr-date"></label>
-                    <label>标的 <input type="text" id="ocr-symbol"></label>
-                    <label>业务类型
-                        <select id="ocr-type">
-                            <option value="">请选择</option>
-                            <option value="买入">买入</option>
-                            <option value="卖出">卖出</option>
-                            <option value="分红入账">分红入账</option>
-                            <option value="股息再投资">股息再投资</option>
-                            <option value="其他">其他</option>
-                        </select>
-                    </label>
-                    <label>现金流 <input type="number" id="ocr-cashflow" step="0.01"></label>
-                    <label>股数 <input type="number" id="ocr-shares" step="0.01"></label>
-                    <label>成交价 <input type="number" id="ocr-price" step="0.01"></label>
+                <div class="ocr-symbol-bar">
+                    <label>标的 <input type="text" id="ocr-global-symbol" placeholder="统一标的（如：易方达蓝筹精选）"></label>
+                </div>
+                <div class="ocr-records-section">
+                    <h4>识别记录 <span id="ocr-record-count"></span></h4>
+                    <div class="import-table-wrap">
+                        <table class="data-table" id="ocr-records-table">
+                            <thead>
+                                <tr>
+                                    <th>日期</th>
+                                    <th>标的</th>
+                                    <th>业务类型</th>
+                                    <th>现金流</th>
+                                    <th>股数</th>
+                                    <th>成交价</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="ocr-records-body"></tbody>
+                        </table>
+                    </div>
                 </div>
                 <div class="dialog-actions">
                     <button type="button" class="btn" id="btn-ocr-cancel">取消</button>
-                    <button type="button" class="btn btn-primary" id="btn-ocr-confirm">确认录入</button>
+                    <button type="button" class="btn btn-primary" id="btn-ocr-confirm">全部导入</button>
                 </div>
             </div>
         </dialog>
@@ -212,6 +220,6 @@
         </dialog>
     </div>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>
