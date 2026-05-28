@@ -679,3 +679,45 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
     border-color: var(--accent);
     background: var(--bg);
 }
+
+.cf-disabled .cf-input-wrap::before { display: none; }
+
+.cf-disabled input {
+    background: var(--bg);
+    border: 1px solid var(--border) !important;
+    border-radius: 4px;
+    cursor: not-allowed;
+    box-shadow: none !important;
+}
+
+/* OCR date fields — compact year/month/day */
+.ocr-date-group {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+}
+
+.ocr-date-group input {
+    width: 40px;
+    text-align: center;
+    padding: 4px 2px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    background: transparent;
+    color: var(--text);
+}
+
+.ocr-date-group input:hover { border-color: var(--border); }
+
+.ocr-date-group input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--bg);
+}
+
+.ocr-date-group .date-sep {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
