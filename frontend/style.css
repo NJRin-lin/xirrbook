@@ -682,6 +682,12 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
 
 .cf-disabled .cf-input-wrap::before { display: none; }
 
+.ocr-add-row-btn {
+    margin-top: 8px;
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
 .cf-disabled input {
     background: var(--bg);
     border: 1px solid var(--border) !important;

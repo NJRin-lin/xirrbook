@@ -745,27 +745,26 @@ document.addEventListener('change', function(e) {
         const typeVal = el.value;
         ocrRecords[idx].business_type = typeVal;
         const row = el.closest('tr');
+        if (!row) return;
         const cfCell = row.querySelector('td:nth-child(4)');
         const cfInput = row.querySelector('input[data-field="cash_flow"]');
         const mvInput = row.querySelector('input[data-field="market_value"]');
+        if (!cfCell || !cfInput) return;
+
+        // Reset all states first
+        cfCell.classList.remove('cash-outflow', 'cf-disabled');
+        cfInput.disabled = false;
+        cfInput.placeholder = '';
+        cfInput.value = ocrRecords[idx].cash_flow != null ? ocrRecords[idx].cash_flow : '';
 
         if (typeVal === '当前市值') {
-            cfCell.classList.remove('cash-outflow');
             cfCell.classList.add('cf-disabled');
             cfInput.disabled = true;
             cfInput.value = '';
-            mvInput.placeholder = '填写当前市值';
-        } else {
-            cfCell.classList.remove('cf-disabled');
-            cfInput.disabled = false;
-            mvInput.placeholder = '';
-            if (typeVal === '买入' || typeVal === '股息再投资') {
-                cfCell.classList.add('cash-outflow');
-                cfInput.placeholder = '输入正数，自动记为支出';
-            } else {
-                cfCell.classList.remove('cash-outflow');
-                cfInput.placeholder = '';
-            }
+            if (mvInput) mvInput.placeholder = '填写当前市值';
+        } else if (typeVal === '买入' || typeVal === '股息再投资') {
+            cfCell.classList.add('cash-outflow');
+            cfInput.placeholder = '输入正数，自动记为支出';
         }
     } else {
         let val = el.value;
@@ -903,6 +902,25 @@ ocrFileInput.addEventListener('change', function() {
 });
 document.getElementById('btn-ocr-confirm').addEventListener('click', confirmOCR);
 document.getElementById('btn-ocr-cancel').addEventListener('click', () => ocrDialog.close());
+
+document.getElementById('btn-ocr-add-row').addEventListener('click', function() {
+    ocrRecords.push({
+        date: '', symbol: '', business_type: '',
+        cash_flow: null, shares: null, price: null, market_value: null,
+    });
+    const sym = document.getElementById('ocr-global-symbol').value;
+    renderOCRRecords(ocrRecords, sym);
+    // Auto-focus year field of the last row and scroll to it
+    const rows = document.querySelectorAll('#ocr-records-body tr');
+    if (rows.length) {
+        const lastRow = rows[rows.length - 1];
+        const yearInput = lastRow.querySelector('[data-field="date-y"]');
+        if (yearInput) {
+            yearInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            yearInput.focus();
+        }
+    }
+});
 
 // Init
 fetchTransactions();
