@@ -174,106 +174,113 @@ def parse_trade_text(raw_text: str) -> dict:
 
 
 def _extract_records(lines, full_text, global_symbol=None):
-    """Type-keyword-anchored extraction — more robust than date-anchored."""
-    # Find type keyword positions
-    type_spots = []
+    """Scan all lines for transaction patterns and return list of records."""
+    # Find all date line indices
+    date_indices = []
     for i, line in enumerate(lines):
-        t = _extract_type_from_lines([line])
-        if t:
-            type_spots.append((i, t, line))
+        if _extract_date_from_line(line):
+            date_indices.append(i)
 
     records = []
-    used_dates = set()
+    prev_date_idx = -1
 
-    for ti, raw_type, type_line in type_spots:
-        # Find nearest date within ±4 lines of this type
-        date_val = None
-        date_pos = None
-        for offset in range(0, 5):
-            for d in [ti - offset, ti + offset]:
-                if 0 <= d < len(lines) and d not in used_dates:
-                    dv = _extract_date_from_line(lines[d])
-                    if dv:
-                        date_val = dv
-                        date_pos = d
-                        break
-            if date_val:
-                break
+    for i, date_idx in enumerate(date_indices):
+        # Record spans from after previous date to before next date
+        start = prev_date_idx + 1
+        end = date_indices[i + 1] if i + 1 < len(date_indices) else len(lines)
 
-        if not date_val:
-            continue
+        record = _build_record_at2(lines, date_idx, start, end, global_symbol)
+        if record and record.get("cash_flow") is not None:
+            records.append(record)
 
-        # Build search window: type line through date line + 2 extra
-        lo = min(ti, date_pos)
-        hi = min(len(lines), max(ti, date_pos) + 2)
-        window = lines[lo:hi]
-        window_text = " ".join(window)
+        prev_date_idx = date_idx
 
-        # Cancel check
-        if any(kw in window_text for kw in CANCEL_KEYWORDS):
-            used_dates.add(date_pos)
-            continue
+    # Fallback: if no records found, try the single-record approach
+    if not records:
+        single = {
+            "date": _extract_date_from_lines(lines),
+            "symbol": global_symbol,
+            "business_type": _extract_type_from_lines(lines),
+            "cash_flow": _extract_amounts_from_lines(lines),
+            "shares": _extract_number(SHARES_AFTER, lines, full_text),
+            "price": _extract_number(PRICE_AFTER, lines, full_text),
+        }
+        if single["date"] and single["cash_flow"] is not None:
+            records.append(single)
 
-        # Amount from window
-        amts = _extract_all_amounts(window)
-        amount_val = amts[0] if amts else None
-        if amount_val is None:
-            continue
+    return records
 
-        display_type = "买入" if raw_type == "定投" else raw_type
 
-        if display_type in ("买入", "股息再投资"):
-            amount_val = abs(amount_val)
+def _build_record_at2(lines, date_idx, record_start, record_end, global_symbol=None):
+    """Build a transaction record with precise boundaries between adjacent dates."""
+    date_val = _extract_date_from_line(lines[date_idx])
 
-        local_symbol = _extract_symbol(window, window_text) or global_symbol
+    # Lines belonging ONLY to this record (between previous and next date)
+    record_lines = lines[record_start:record_end]
+    record_text = " ".join(record_lines)
 
-        records.append({
+    # Cancel check
+    for kw in CANCEL_KEYWORDS:
+        if kw in record_text:
+            return None
+
+    # Type and amount: search above (preferred) and below the date
+    date_line = [lines[date_idx]]
+    adj_above_1 = [lines[date_idx - 1]] if date_idx > record_start else []
+    adj_below_1 = [lines[date_idx + 1]] if date_idx + 1 < record_end else []
+    adj_below_2 = lines[date_idx + 1:min(record_end, date_idx + 3)]
+
+    # Type: prefer above (Alipay: type always before date).
+    # If above has amount, type likely 1-2 lines further up.
+    amts_above_1 = _extract_all_amounts(adj_above_1)
+    adj_above_2 = []
+    type_above = _extract_type_from_lines(adj_above_1)
+    if not type_above and amts_above_1:
+        adj_above_2 = [lines[date_idx - 2]] if date_idx - 2 >= record_start else []
+        type_above = _extract_type_from_lines(adj_above_2)
+
+    type_below = _extract_type_from_lines(adj_below_1)
+
+    # If amount is above the date, prefer above type; otherwise accept below type
+    if amts_above_1:
+        type_val = type_above or type_below
+    else:
+        type_val = type_above or type_below
+
+    if not type_val:
+        type_val = _extract_type_from_lines(record_lines)
+    if not type_val:
+        return None
+
+    # Amount: prefer side that has the chosen type
+    amts_date = _extract_all_amounts(date_line)
+    if type_val and type_below and type_val == type_below:
+        amts_below = _extract_all_amounts(adj_below_1)
+        amount_val = (amts_below[0] if amts_below else None) or \
+                     (amts_date[0] if amts_date else None)
+    else:
+        amts_above_all = _extract_all_amounts(adj_above_1 + adj_above_2)
+        amts_below = _extract_all_amounts(adj_below_2)
+        amount_val = (amts_above_all[-1] if amts_above_all else None) or \
+                     (amts_date[0] if amts_date else None) or \
+                     (amts_below[0] if amts_below else None)
+    local_symbol = _extract_symbol(record_lines, record_text) or global_symbol
+
+    # Keep amounts positive — frontend handles visual minus sign
+    if amount_val is not None and type_val in ("买入", "股息再投资"):
+        amount_val = abs(amount_val)
+
+    if amount_val is not None:
+        return {
             "date": date_val,
             "symbol": local_symbol,
-            "business_type": display_type,
-            "cash_flow": amount_val,
-            "shares": _extract_number(SHARES_AFTER, window, window_text),
-            "price": _extract_number(PRICE_AFTER, window, window_text),
-        })
-
-        used_dates.add(date_pos)
-
-    # Fallback: date-anchored if no type keywords found
-    if not records:
-        return _extract_records_fallback(lines, full_text, global_symbol)
-
-    return records
-
-
-def _extract_records_fallback(lines, full_text, global_symbol):
-    """Fallback when no type keywords found — date-anchored extraction."""
-    records = []
-    for i, line in enumerate(lines):
-        date_val = _extract_date_from_line(line)
-        if not date_val:
-            continue
-        lo = max(0, i - 3)
-        hi = min(len(lines), i + 4)
-        window = lines[lo:hi]
-        window_text = " ".join(window)
-        if any(kw in window_text for kw in CANCEL_KEYWORDS):
-            continue
-        type_val = _extract_type_from_lines(window)
-        amts = _extract_all_amounts(window)
-        amount_val = amts[0] if amts else None
-        if not type_val or amount_val is None:
-            continue
-        if type_val in ("买入", "股息再投资"):
-            amount_val = abs(amount_val)
-        records.append({
-            "date": date_val,
-            "symbol": _extract_symbol(window, window_text) or global_symbol,
             "business_type": type_val,
             "cash_flow": amount_val,
-            "shares": _extract_number(SHARES_AFTER, window, window_text),
-            "price": _extract_number(PRICE_AFTER, window, window_text),
-        })
-    return records
+            "shares": _extract_number(SHARES_AFTER, record_lines, record_text),
+            "price": _extract_number(PRICE_AFTER, record_lines, record_text),
+        }
+
+    return None
 
 
 def _build_record_at(lines, start_idx, global_symbol=None):

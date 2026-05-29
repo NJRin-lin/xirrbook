@@ -794,8 +794,14 @@ async function handleOCRFile(file) {
             ocrRawText.textContent = data.raw_text || '(无文字)';
             const records = data.records && data.records.length > 0 ? data.records
                 : data.parsed ? [data.parsed] : [];
-            // Prefer parsed.symbol as global (from fund name header)
             const globalSym = data.parsed ? data.parsed.symbol : null;
+
+            if (records.length === 0) {
+                ocrRawText.textContent = (data.raw_text || '') + '\n\n⚠️ 未能识别到交易记录。建议：\n1. 确保截图清晰、文字可读\n2. 截取完整的交易记录区域\n3. 避免截图中有过多无关内容';
+                document.getElementById('ocr-records-body').innerHTML = '';
+                document.getElementById('ocr-record-count').textContent = '';
+                return;
+            }
             renderOCRRecords(records, globalSym);
         } else {
             ocrRawText.textContent = data.raw_text || 'OCR 识别失败';
@@ -902,6 +908,52 @@ ocrFileInput.addEventListener('change', function() {
 });
 document.getElementById('btn-ocr-confirm').addEventListener('click', confirmOCR);
 document.getElementById('btn-ocr-cancel').addEventListener('click', () => ocrDialog.close());
+
+// --- OCR Multi-image ---
+const ocrMultiInput = document.getElementById('ocr-multi-input');
+
+document.getElementById('btn-ocr-multi').addEventListener('click', function() {
+    ocrMultiInput.value = '';
+    ocrMultiInput.click();
+});
+
+ocrMultiInput.addEventListener('change', async function() {
+    if (!this.files || this.files.length === 0) return;
+    const allRecords = [];
+    let globalSym = null;
+
+    for (const file of this.files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const resp = await fetch('/api/ocr', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.success && data.records) {
+                for (const r of data.records) {
+                    allRecords.push(r);
+                }
+                if (!globalSym && data.parsed && data.parsed.symbol) {
+                    globalSym = data.parsed.symbol;
+                }
+            }
+        } catch (err) {
+            // skip failed images
+        }
+    }
+
+    if (allRecords.length === 0) {
+        alert('未能从所选图片中识别到交易记录，请尝试更清晰的截图');
+        return;
+    }
+
+    // Show preview in OCR dialog
+    if (ocrBlobUrl) URL.revokeObjectURL(ocrBlobUrl);
+    ocrBlobUrl = URL.createObjectURL(this.files[0]);
+    ocrPreviewImg.src = ocrBlobUrl;
+    ocrRawText.textContent = `已从 ${this.files.length} 张图片中识别到 ${allRecords.length} 条记录`;
+    renderOCRRecords(allRecords, globalSym);
+    ocrDialog.showModal();
+});
 
 document.getElementById('btn-ocr-add-row').addEventListener('click', function() {
     ocrRecords.push({
