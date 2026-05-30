@@ -660,6 +660,34 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
     box-shadow: 0 0 0 3px rgba(0,113,227,0.15);
 }
 
+.ocr-symbol-tip {
+    display: none;
+    font-size: 11px;
+    font-weight: 400;
+    color: #8a6d3b;
+    background: #fff8e5;
+    border: 1px solid #f0d68a;
+    border-radius: 4px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    margin-left: 8px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.ocr-symbol-bar input:hover + .ocr-symbol-tip,
+.ocr-symbol-bar input:focus + .ocr-symbol-tip {
+    display: inline;
+}
+
+@media (prefers-color-scheme: dark) {
+    .ocr-symbol-tip {
+        color: #d4b860;
+        background: #3d3520;
+        border-color: #6b5a30;
+    }
+}
+
 .ocr-records-section { margin-top: 8px; }
 
 .ocr-records-section h4 {
