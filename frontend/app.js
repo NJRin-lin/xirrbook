@@ -791,9 +791,21 @@ async function handleOCRFile(file) {
     formData.append('file', file);
     try {
         const resp = await fetch('/api/ocr', { method: 'POST', body: formData });
-        const data = await resp.json();
+        let data;
+        try {
+            data = await resp.json();
+        } catch (e) {
+            data = { success: false, detail: '服务返回了无法解析的响应 (HTTP ' + resp.status + ')' };
+        }
+        if (!resp.ok) {
+            ocrRawText.textContent = '⚠️ ' + (data.detail || ('OCR 识别失败 (HTTP ' + resp.status + ')'));
+            document.getElementById('ocr-records-body').innerHTML = '';
+            document.getElementById('ocr-record-count').textContent = '';
+            return;
+        }
         if (data.success) {
-            ocrRawText.textContent = data.raw_text || '(无文字)';
+            const engineLabel = data.engine === 'vision' ? 'macOS Vision' : data.engine === 'tesseract' ? 'Tesseract' : '';
+            ocrRawText.textContent = (engineLabel ? '（识别引擎：' + engineLabel + '）\n' : '') + (data.raw_text || '(无文字)');
             const records = data.records && data.records.length > 0 ? data.records
                 : data.parsed ? [data.parsed] : [];
             const globalSym = data.parsed ? data.parsed.symbol : null;
@@ -809,7 +821,7 @@ async function handleOCRFile(file) {
             ocrRawText.textContent = data.raw_text || 'OCR 识别失败';
         }
     } catch (err) {
-        ocrRawText.textContent = 'OCR 服务不可用。请确认已安装 Tesseract：brew install tesseract tesseract-lang';
+        ocrRawText.textContent = '⚠️ OCR 服务不可用：' + (err.message || err) + '。请确认后端服务已启动。';
     }
 }
 

@@ -10,80 +10,75 @@ guard CommandLine.arguments.count >= 2 else {
 
 let imagePath = CommandLine.arguments[1]
 
-guard let image = NSImage(contentsOfFile: imagePath),
-      let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-    // Try loading as CGImage directly
-    guard let directCG = CGImageSourceCreateWithURL(URL(fileURLWithPath: imagePath) as CFURL, nil),
-          let cg = CGImageSourceCreateImageAtIndex(directCG, 0, nil) else {
-        print("")
-        exit(0)
-    }
-    let cgImage2 = cg
-    recognize(cgImage2)
-    exit(0)
+// Load image: try NSImage first, then CGImageSource directly
+var cgImage: CGImage? = nil
+if let image = NSImage(contentsOfFile: imagePath),
+   let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+    cgImage = cg
+} else if let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: imagePath) as CFURL, nil),
+          let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+    cgImage = cg
 }
 
-recognize(cgImage)
+guard let image = cgImage else {
+    fputs("ERROR: cannot load image: \(imagePath)\n", stderr)
+    exit(1)
+}
 
-func recognize(_ image: CGImage) {
-    let request = VNRecognizeTextRequest()
-    request.recognitionLevel = .accurate
-    request.usesLanguageCorrection = true
-    request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"]
-    request.minimumTextHeight = 0.01  // detect small text
+let request = VNRecognizeTextRequest()
+request.recognitionLevel = .accurate
+request.usesLanguageCorrection = true
+request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"]
+request.minimumTextHeight = 0.01  // detect small text
 
-    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+let handler = VNImageRequestHandler(cgImage: image, options: [:])
 
-    do {
-        try handler.perform([request])
-    } catch {
-        print("")
-        exit(0)
-    }
+do {
+    try handler.perform([request])
+} catch {
+    fputs("ERROR: Vision perform failed: \(error)\n", stderr)
+    exit(1)
+}
 
-    guard let observations = request.results else {
-        print("")
-        exit(0)
-    }
+guard let observations = request.results, !observations.isEmpty else {
+    fputs("ERROR: no text recognized\n", stderr)
+    exit(1)
+}
 
-    // Sort results top-to-bottom, left-to-right for natural reading order
-    let sorted = observations.sorted { a, b in
-        let ay = a.boundingBox.origin.y
-        let by = b.boundingBox.origin.y
-        if abs(ay - by) > 0.02 {
-            return ay > by  // top-to-bottom (Vision uses bottom-left origin)
+// Group observations into lines by y-coordinate, then sort lines top-to-bottom
+// and tokens within each line left-to-right. Vision uses bottom-left origin.
+let tolerance: CGFloat = 0.015
+
+var used = Array(repeating: false, count: observations.count)
+var lines: [[VNRecognizedTextObservation]] = []
+
+for i in 0..<observations.count where !used[i] {
+    used[i] = true
+    let anchorY = observations[i].boundingBox.origin.y
+    var line: [VNRecognizedTextObservation] = [observations[i]]
+
+    for j in (i+1)..<observations.count where !used[j] {
+        let y = observations[j].boundingBox.origin.y
+        if abs(y - anchorY) <= tolerance {
+            used[j] = true
+            line.append(observations[j])
         }
-        return a.boundingBox.origin.x < b.boundingBox.origin.x  // left-to-right
     }
+    lines.append(line)
+}
 
-    // Group text into lines (same y-coordinate)
-    var lines: [[String]] = []
-    var currentLine: [String] = []
-    var lastY: CGFloat = -1
+// Sort lines: top-to-bottom (higher y first)
+lines.sort { a, b in
+    let ay = a.map { $0.boundingBox.origin.y }.max() ?? 0
+    let by = b.map { $0.boundingBox.origin.y }.max() ?? 0
+    return ay > by
+}
 
-    for obs in sorted {
-        guard let text = obs.topCandidates(1).first?.string else { continue }
-        let y = obs.boundingBox.origin.y
-
-        if let firstInLine = currentLine.first,
-           let firstObs = sorted.first(where: { $0.topCandidates(1).first?.string == firstInLine }) {
-            if abs(firstObs.boundingBox.origin.y - y) > 0.015 {
-                lines.append(currentLine)
-                currentLine = [text]
-            } else {
-                currentLine.append(text)
-            }
-        } else {
-            currentLine.append(text)
-        }
-        lastY = y
-    }
-    if !currentLine.isEmpty {
-        lines.append(currentLine)
-    }
-
-    // Output each line as space-separated tokens
-    for line in lines {
-        print(line.joined(separator: " "))
+// Sort tokens within each line: left-to-right
+for line in lines {
+    let sorted = line.sorted { $0.boundingBox.origin.x < $1.boundingBox.origin.x }
+    let texts = sorted.compactMap { $0.topCandidates(1).first?.string }
+    if !texts.isEmpty {
+        print(texts.joined(separator: " "))
     }
 }

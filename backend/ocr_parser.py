@@ -1,3 +1,4 @@
+import os
 import re
 import io
 from datetime import datetime
@@ -6,6 +7,10 @@ from typing import Optional
 # Lazy imports — only when OCR is actually used (Tesseract/Pillow may not be installed)
 _tesseract_available = None
 _Image = None
+
+# Precompiled Vision binary — compile once, reuse across calls (much faster than
+# running `swift vision_ocr.swift` every time, which recompiles on each call).
+_vision_bin = None
 
 
 def _ensure_tesseract():
@@ -30,15 +35,27 @@ def _ensure_pillow():
     return _Image
 
 
-def ocr_image(file_bytes: bytes, lang: str = "chi_sim+eng") -> str:
+def ocr_image(file_bytes: bytes, lang: str = "chi_sim+eng") -> dict:
+    """Run OCR, trying Apple Vision first (built into macOS, best Chinese accuracy),
+    then falling back to Tesseract.
+
+    Returns a dict: {"text": str, "engine": str, "error": str}
+    - engine: "vision" | "tesseract" | ""
+    - error:  human-readable reason when no text was produced
+    """
     # 1. Try Apple Vision (much better Chinese accuracy, built into macOS)
-    text = _ocr_vision(file_bytes)
+    text, err = _ocr_vision(file_bytes)
     if text and len(text.strip()) > 10:
-        return _clean_ocr_text(text)
+        return {"text": _clean_ocr_text(text), "engine": "vision", "error": ""}
+
+    vision_error = err or "Vision 未识别出有效文字"
 
     # 2. Fallback to Tesseract
     text = _ocr_tesseract(file_bytes, lang)
-    return _clean_ocr_text(text) if text else ""
+    if text and text.strip():
+        return {"text": _clean_ocr_text(text), "engine": "tesseract", "error": ""}
+
+    return {"text": "", "engine": "", "error": vision_error}
 
 
 def _clean_ocr_text(text: str) -> str:
@@ -65,29 +82,120 @@ def _clean_ocr_text(text: str) -> str:
     return "\n".join(cleaned)
 
 
-def _ocr_vision(file_bytes: bytes) -> str:
-    """Use macOS Vision framework via Swift helper for OCR."""
+def _ocr_vision(file_bytes: bytes) -> tuple:
+    """Use macOS Vision framework via a precompiled Swift helper for OCR.
+
+    Returns (text, error). Compiles the Swift script to a binary once and reuses
+    it — running swift vision_ocr.swift every time recompiles and is very slow.
+    Tall scrolling screenshots are sliced into chunks because Vision fails on
+    extremely tall images (returns "no text recognized").
+    """
     import subprocess
     import tempfile
-    import os
+    import shutil
 
-    swift_script = os.path.join(os.path.dirname(__file__), "vision_ocr.swift")
-    if not os.path.exists(swift_script):
-        return ""
+    global _vision_bin
+
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vision_ocr.swift")
+    if not os.path.exists(script):
+        return "", "Vision 脚本缺失: vision_ocr.swift"
+
+    # Compile once to a temp binary; fall back to running the script directly
+    if _vision_bin is None or not os.path.exists(_vision_bin):
+        try:
+            bin_fd, bin_path = tempfile.mkstemp(suffix="_vision_ocr", prefix="xirr_")
+            os.close(bin_fd)
+            os.unlink(bin_path)
+            # -Xcc -fmodules-cache-path redirects clang module cache to a writable
+            # temp dir — avoids "Operation not permitted" on restricted systems.
+            module_cache = os.path.join(tempfile.gettempdir(), "xirr_swift_modules")
+            os.makedirs(module_cache, exist_ok=True)
+            compile_result = subprocess.run(
+                ["swiftc", "-O", "-Xcc", "-fmodules-cache-path=" + module_cache, "-o", bin_path, script],
+                capture_output=True, text=True, timeout=180
+            )
+            if compile_result.returncode == 0:
+                _vision_bin = bin_path
+            else:
+                os.unlink(bin_path)
+                _vision_bin = None
+        except Exception:
+            _vision_bin = None
+
+    def _run_vision_once(image_bytes: bytes) -> tuple:
+        """Run the Vision helper on one image; returns (text, error)."""
+        suffix = os.path.splitext(_guess_image_ext(image_bytes))[1] or ".png"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(image_bytes)
+            tmp_path = tmp.name
+        try:
+            if _vision_bin:
+                result = subprocess.run([_vision_bin, tmp_path], capture_output=True, text=True, timeout=90)
+            else:
+                result = subprocess.run(["swift", script, tmp_path], capture_output=True, text=True, timeout=120)
+            if result.returncode == 0:
+                text = result.stdout.strip()
+                return (text, "" if text else "Vision 未识别出文字")
+            return "", "Vision 识别失败: " + (result.stderr.strip()[-200:] or "未知错误")
+        except subprocess.TimeoutExpired:
+            return "", "Vision 识别超时（图片过大？）"
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    # Slice tall images (e.g. long scrolling screenshots) into chunks — Vision
+    # returns "no text recognized" on very tall images. Chunk height 4000px.
+    CHUNK_H = 4000
+    try:
+        from PIL import Image as _PILImg
+        probe = _PILImg.open(io.BytesIO(file_bytes))
+        w, h = probe.size
+    except Exception:
+        probe = None
+        w = h = 0
+
+    if probe is not None and h > CHUNK_H:
+        chunks = []
+        y = 0
+        idx = 0
+        while y < h:
+            y2 = min(y + CHUNK_H, h)
+            # Overlap by 100px so a text line at the boundary is not split
+            y_start = max(0, y - 100) if idx > 0 else y
+            y_end = y2
+            crop = probe.crop((0, y_start, w, y_end))
+            buf = io.BytesIO()
+            crop.save(buf, format="PNG")
+            text, err = _run_vision_once(buf.getvalue())
+            if text:
+                chunks.append(text)
+            y = y2
+            idx += 1
+        if chunks:
+            return ("\n".join(chunks), "")
+        return ("", "Vision 对长图切片识别均失败")
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp.write(file_bytes)
-            tmp_path = tmp.name
+        return _run_vision_once(file_bytes)
+    except Exception as e:
+        return "", "Vision 识别异常: " + str(e)
 
-        result = subprocess.run(
-            ["swift", swift_script, tmp_path],
-            capture_output=True, text=True, timeout=60
-        )
-        os.unlink(tmp_path)
-        return result.stdout.strip() if result.returncode == 0 else ""
-    except Exception:
-        return ""
+
+def _guess_image_ext(data: bytes) -> str:
+    """Guess image extension from magic bytes so Vision can decode it properly."""
+    if data[:8] == bytes.fromhex("89504e470d0a1a0a"):
+        return ".png"
+    if data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    if data[:2] == b"BM":
+        return ".bmp"
+    if data[:4] == b"\x00\x00\x01\x00":
+        return ".ico"
+    return ".png"
 
 
 def _compute_otsu_threshold(img) -> int:
@@ -162,10 +270,16 @@ def _ocr_tesseract(file_bytes: bytes, lang: str = "chi_sim+eng") -> str:
     elif img.mode != "RGB":
         img = img.convert("RGB")
 
-    # Upscale to ~300 DPI equivalent for better character separation
+    # Upscale small images to ~300 DPI equivalent; but cap the total size —
+    # Tesseract fails with "Image too large" on very tall scrolling screenshots.
     w, h = img.size
     if max(w, h) < 2400:
         scale = 2400 / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), _Image.LANCZOS)
+    # Cap longest edge at 8000px (long scroll screenshots are sliced by rows later)
+    w, h = img.size
+    if max(w, h) > 8000:
+        scale = 8000 / max(w, h)
         img = img.resize((int(w * scale), int(h * scale)), _Image.LANCZOS)
 
     # Grayscale
@@ -279,8 +393,11 @@ def _extract_records(lines, full_text, global_symbol=None):
         window = lines[lo:hi]
         window_text = " ".join(window)
 
-        # Cancel check
-        if any(kw in window_text for kw in CANCEL_KEYWORDS):
+        # Cancel check: only inspect this record's own lines (type → date),
+        # NOT lines after the date — otherwise the next record's "交易关闭"
+        # text gets swept into this window and this record is wrongly dropped.
+        cancel_scope = lines[lo:date_pos + 1]
+        if any(kw in " ".join(cancel_scope) for kw in CANCEL_KEYWORDS):
             used_dates.add(date_pos)
             continue
 

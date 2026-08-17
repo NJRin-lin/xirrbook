@@ -17,15 +17,22 @@ async def ocr_upload(file: UploadFile = File(...)):
     if len(contents) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="图片大小不能超过 20MB")
 
-    raw_text = ocr_image(contents)
+    result = ocr_image(contents)
+    raw_text = result["text"]
+    engine = result["engine"]
 
     if not raw_text:
-        raise HTTPException(status_code=500, detail="OCR 识别失败，请确认 Tesseract 已安装")
+        raise HTTPException(
+            status_code=500,
+            detail=f"OCR 识别失败（{engine or '无可用引擎'}）：{result['error']}。"
+                   "Vision 为 macOS 内置能力，请确认系统正常；Tesseract 可另行安装作为兜底。",
+        )
 
     parsed = parse_trade_text(raw_text)
 
     return {
         "success": True,
+        "engine": engine,
         "raw_text": raw_text.strip(),
         "parsed": {
             "date": parsed.get("date"),
