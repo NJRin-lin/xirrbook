@@ -37,7 +37,8 @@ def ocr_image(file_bytes: bytes, lang: str = "chi_sim+eng") -> str:
         return _clean_ocr_text(text)
 
     # 2. Fallback to Tesseract
-    return _ocr_tesseract(file_bytes, lang)
+    text = _ocr_tesseract(file_bytes, lang)
+    return _clean_ocr_text(text) if text else ""
 
 
 def _clean_ocr_text(text: str) -> str:
@@ -89,8 +90,49 @@ def _ocr_vision(file_bytes: bytes) -> str:
         return ""
 
 
-def _ocr_tesseract(file_bytes: bytes, lang: str) -> str:
-    """Fallback OCR using Tesseract."""
+def _compute_otsu_threshold(img) -> int:
+    """Compute optimal binary threshold using OTSU's method on a grayscale image."""
+    hist = img.histogram()
+    total = sum(hist)
+    if total == 0:
+        return 128
+
+    sum_b = 0
+    w_b = 0
+    max_var = 0
+    threshold = 128
+
+    sum_total = sum(i * h for i, h in enumerate(hist))
+
+    for t in range(256):
+        w_b += hist[t]
+        if w_b == 0:
+            continue
+        w_f = total - w_b
+        if w_f == 0:
+            break
+        sum_b += t * hist[t]
+        m_b = sum_b / w_b
+        m_f = (sum_total - sum_b) / w_f
+        var_between = w_b * w_f * (m_b - m_f) ** 2
+        if var_between > max_var:
+            max_var = var_between
+            threshold = t
+
+    return threshold
+
+
+def _ocr_tesseract(file_bytes: bytes, lang: str = "chi_sim+eng") -> str:
+    """Fallback OCR using Tesseract with adaptive preprocessing.
+
+    Key improvements over a naive tesseract call:
+    - OEM 1 (LSTM-only) — best for Chinese, no legacy-mode fallback
+    - NO character whitelist — whitelists force legacy mode and kill LSTM accuracy
+    - OTSU adaptive thresholding — handles screenshots with varying brightness
+    - Median denoising — removes salt-and-pepper noise from JPEG compression
+    - RGBA → RGB flattening — some apps produce screenshots with alpha channels
+    - Upscale to ~300 DPI equivalent — Tesseract works best at print resolution
+    """
     if not _ensure_tesseract():
         return ""
     if not _ensure_pillow():
@@ -98,22 +140,50 @@ def _ocr_tesseract(file_bytes: bytes, lang: str) -> str:
 
     import pytesseract
     from PIL import ImageFilter
+    import sys
+
+    # Check that Chinese language data is installed
+    try:
+        installed = pytesseract.get_languages()
+        if "chi_sim" not in installed:
+            print("⚠ Tesseract 中文语言包未安装，OCR 准确率将大幅下降。安装方法：", file=sys.stderr)
+            print("  macOS: brew install tesseract-lang", file=sys.stderr)
+            print("  Windows: 重新运行安装程序并勾选中文语言包", file=sys.stderr)
+    except Exception:
+        pass  # get_languages() may not be available in old pytesseract versions
 
     img = _Image.open(io.BytesIO(file_bytes))
 
+    # Flatten RGBA onto white background
+    if img.mode == "RGBA":
+        background = _Image.new("RGB", img.size, (255, 255, 255))
+        background.paste(img, mask=img.split()[3])
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Upscale to ~300 DPI equivalent for better character separation
     w, h = img.size
-    if max(w, h) < 1200:
-        scale = 1800 / max(w, h)
+    if max(w, h) < 2400:
+        scale = 2400 / max(w, h)
         img = img.resize((int(w * scale), int(h * scale)), _Image.LANCZOS)
 
+    # Grayscale
     img = img.convert("L")
-    img = img.point(lambda x: 0 if x < 140 else 255)
+
+    # Denoise — median filter removes salt-and-pepper noise without blurring edges
+    img = img.filter(ImageFilter.MedianFilter(size=3))
+
+    # OTSU adaptive binarisation
+    threshold = _compute_otsu_threshold(img)
+    img = img.point(lambda x: 0 if x < threshold else 255)
+
+    # Light sharpen to crisp up character edges
     img = img.filter(ImageFilter.SHARPEN)
 
-    text = pytesseract.image_to_string(
-        img, lang=lang,
-        config="--psm 6 -c tessedit_char_whitelist=0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ一-鿿,.+-¥￥()（）/年月日买买入卖出申购赎回认购分红红利股利派息股息再投数量份额股成交价价格金额元"
-    )
+    # OEM 1 = LSTM neural net only (best for Chinese)
+    # PSM 6 = assume uniform block of text, read rows left-to-right
+    text = pytesseract.image_to_string(img, lang=lang, config="--oem 1 --psm 6")
     return text
 
 

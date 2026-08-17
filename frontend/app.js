@@ -538,6 +538,7 @@ function renderHoldings(holdings) {
 }
 
 function renderCumulativeChart(cumulative) {
+    if (typeof echarts === 'undefined') return;
     const panel = document.getElementById('chart-panel');
     if (!cumulative || cumulative.length < 2) {
         panel.style.display = 'none';
@@ -593,6 +594,7 @@ function renderCumulativeChart(cumulative) {
 }
 
 function renderHoldingChart(holdings) {
+    if (typeof echarts === 'undefined') return;
     const container = document.getElementById('chart-holding');
     if (!chartHolding) {
         chartHolding = echarts.init(container);
@@ -632,8 +634,8 @@ document.querySelectorAll('.chart-tab').forEach(tab => {
         const chartName = this.dataset.chart;
         document.getElementById('chart-cumulative').style.display = chartName === 'cumulative' ? '' : 'none';
         document.getElementById('chart-holding').style.display = chartName === 'holding' ? '' : 'none';
-        if (chartName === 'cumulative' && chartCumulative) chartCumulative.resize();
-        if (chartName === 'holding' && chartHolding) chartHolding.resize();
+        if (chartName === 'cumulative' && chartCumulative && typeof echarts !== 'undefined') chartCumulative.resize();
+        if (chartName === 'holding' && chartHolding && typeof echarts !== 'undefined') chartHolding.resize();
     });
 });
 
