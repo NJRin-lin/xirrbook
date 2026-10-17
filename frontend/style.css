@@ -806,3 +806,12 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 }
 #ocr-content .ocr-heading { position: sticky; top: 0; z-index: 4; padding: 8px 0; background: var(--card-bg); }
 #ocr-content > .dialog-actions { position: sticky; bottom: 0; z-index: 4; padding: 12px 0; background: var(--card-bg); border-top: 1px solid var(--border); }
+
+.filter-period-help, .period-details { font-size: 12px; color: var(--text-secondary); line-height: 1.7; }
+.filter-period-help { margin: 10px 0; }
+.period-details { margin: -8px 0 18px; }
+#xirr-missing-values { padding-left: 18px; }
+#xirr-missing-values li { margin-top: 8px; }
+#xirr-missing-values .btn { margin-left: 6px; font-size: 12px; }
+
+.scope-note { font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 6px; }

@@ -107,6 +107,7 @@ class FinancialRegressionTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(transactions.router, prefix='/api')
         app.include_router(ocr.router, prefix='/api')
+        app.include_router(xirr.router, prefix='/api')
         messages = []
         sent = False
         async def receive():
@@ -117,9 +118,10 @@ class FinancialRegressionTests(unittest.TestCase):
             return {'type': 'http.disconnect'}
         async def send(message):
             messages.append(message)
+        route_path, _, query = path.partition('?')
         await app({'type': 'http', 'asgi': {'version': '3.0'}, 'http_version': '1.1',
-                   'method': method, 'scheme': 'http', 'path': path, 'raw_path': path.encode(),
-                   'query_string': b'', 'root_path': '', 'headers': [(b'content-type', b'application/json')],
+                   'method': method, 'scheme': 'http', 'path': route_path, 'raw_path': route_path.encode(),
+                   'query_string': query.encode(), 'root_path': '', 'headers': [(b'content-type', b'application/json')],
                    'client': ('127.0.0.1', 1), 'server': ('test', 80)}, receive, send)
         return messages[0]['status'], json.loads(b''.join(m.get('body', b'') for m in messages[1:]))
 

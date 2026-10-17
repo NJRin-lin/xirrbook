@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>投资回报率记录</title>
-    <link rel="stylesheet" href="style.css?v=27">
+    <link rel="stylesheet" href="style.css?v=28">
     <!-- ECharts 本地化：下载自 cdn.jsdelivr.net (echarts@5.5.0)，离线可用 -->
     <script src="vendor/echarts.min.js"></script>
 </head>
@@ -21,23 +21,25 @@
                     <span class="metric-value" id="xirr-value">--</span>
                 </div>
                 <div class="metric-card">
-                    <span class="metric-label">累计投入</span>
+                    <span class="metric-label" id="total-invested-label">累计投入</span>
                     <span class="metric-value" id="total-invested">--</span>
                 </div>
                 <div class="metric-card">
-                    <span class="metric-label">累计收回</span>
+                    <span class="metric-label" id="total-returned-label">累计收回</span>
                     <span class="metric-value" id="total-returned">--</span>
                 </div>
             </section>
 
             <div class="xirr-hint" id="xirr-hint" style="display:none">
                 <span class="xirr-hint-icon">💡</span>
-                <span>XIRR 需要有效的投入和回收金额。仍在持有的投资品，请新增「当前市值」记录；计算采用所选范围内每个标的最后一次市值及其记录日期，累计收回只统计实际现金收入。</span>
+                <div><span id="xirr-hint-text"></span><ul id="xirr-missing-values"></ul></div>
             </div>
+
+            <p class="period-details" id="xirr-period-details" hidden></p>
 
             <section class="panel holdings-panel" id="holdings-panel" style="display:none">
                 <div class="panel-header">
-                    <h2>持仓总览</h2>
+                    <h2>持仓总览 <span class="scope-note">全部记录</span></h2>
                 </div>
                 <div class="holdings-grid" id="holdings-grid"></div>
             </section>
@@ -52,6 +54,7 @@
                         </span>
                     </label>
                 </div>
+                <p class="filter-period-help">设置日期后计算区间 XIRR：包含起止日交易，期初采用起始日前一天的收盘市值。业务类型仅筛选交易列表，不筛选收益计算；持仓与图表仍展示全部记录。</p>
                 <div class="filter-row">
                     <label>标的
                         <input type="text" id="filter-symbol" placeholder="输入代码或名称搜索">
@@ -219,7 +222,7 @@
         </dialog>
     </div>
 
-    <script src="app.js?v=27"></script>
-    <script src="ocr.js?v=27"></script>
+    <script src="app.js?v=28"></script>
+    <script src="ocr.js?v=28"></script>
 </body>
 </html>
