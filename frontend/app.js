@@ -9,6 +9,8 @@ const btnCancel = document.getElementById('btn-cancel');
 
 let currentPage = 1;
 let editingId = null;
+let formAccountId = 1;
+let metricsRequest = 0;
 
 // --- Date helpers (year/month/day inputs) ---
 const txYear = document.getElementById('tx-year');
@@ -172,37 +174,89 @@ function formatCash(value) {
     return `<span class="${cls}">${value >= 0 ? '+' : ''}${value.toFixed(2)}</span>`;
 }
 
-async function fetchMetrics() {
-    const params = getFilterParams();
-    const resp = await fetch('/api/xirr?' + params.toString());
-    const data = await resp.json();
+function showMetricsHint(text, missing = []) {
+    const hint = document.getElementById('xirr-hint');
+    document.getElementById('xirr-hint-text').textContent = text;
+    const list = document.getElementById('xirr-missing-values');
+    list.replaceChildren();
+    missing.forEach(item => {
+        const li = document.createElement('li');
+        const description = document.createElement('span');
+        description.textContent = `${item.symbol}${item.account_id !== 1 ? '（账户 ' + item.account_id + '）' : ''} · ${item.kind === 'opening' ? '期初' : '期末'} ${item.date} `;
+        const button = document.createElement('button');
+        button.className = 'btn';
+        button.type = 'button';
+        button.textContent = '补录市值';
+        button.addEventListener('click', () => openValuationForm(item));
+        li.append(description, button);
+        list.append(li);
+    });
+    hint.style.display = text ? '' : 'none';
+}
 
-    const xirrCard = document.getElementById('xirr-value').closest('.metric-card');
+function openValuationForm(item) {
+    resetForm();
+    formAccountId = item.account_id;
+    setDateFields(item.date);
+    document.getElementById('tx-symbol').value = item.symbol;
+    document.getElementById('tx-type').value = '当前市值';
+    document.getElementById('dialog-title').textContent = `补录${item.kind === 'opening' ? '期初' : '期末'}市值`;
+    applyTypeVisibility('当前市值');
+    dialog.showModal();
+    document.getElementById('tx-market-value').focus();
+}
+
+function renderMetrics(data) {
+    const period = data.mode === 'period';
     const xirrEl = document.getElementById('xirr-value');
-    const xirrLabel = xirrCard.querySelector('.metric-label');
-
-    const hintEl = document.getElementById('xirr-hint');
-
-    if (data.xirr != null) {
-        xirrLabel.textContent = '年化收益率 (XIRR)';
+    const label = xirrEl.closest('.metric-card').querySelector('.metric-label');
+    label.textContent = period ? '区间年化收益率 (XIRR)' : '年化收益率 (XIRR)';
+    document.getElementById('total-invested-label').textContent = period ? '区间新增投入' : '累计投入';
+    document.getElementById('total-returned-label').textContent = period ? '区间实际收回' : '累计收回';
+    xirrEl.className = 'metric-value';
+    showMetricsHint('');
+    const details = document.getElementById('xirr-period-details');
+    details.hidden = !period;
+    if (period) {
+        const money = value => value == null ? '待补充' : `¥${value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        details.textContent = `区间 ${data.start_date} 至 ${data.end_date}（含当日交易）。期初 ${data.opening_date}：${money(data.opening_market_value)}；期末 ${data.end_date}：${money(data.market_value)}。区间盈亏（含分红）：${money(data.period_profit)}。期初估值只参与计算，不计入新增投入。`;
+    }
+    if (data.status === 'missing_valuations') {
+        xirrEl.textContent = '待补市值';
+        showMetricsHint('请补充以下边界日期的收盘市值。已清仓可填 0；系统不会用更早的正市值代替，也不会写入虚拟买卖。', data.missing_valuations);
+    } else if (data.xirr != null) {
         xirrEl.textContent = `${(data.xirr * 100).toFixed(2)}%`;
-        xirrEl.className = 'metric-value';
-        hintEl.style.display = 'none';
-    } else if (data.cashflow_count >= 2) {
-        xirrLabel.textContent = '累计净现金流';
+    } else if (!period && data.cashflow_count >= 2) {
+        label.textContent = '累计净现金流';
         const net = data.net_cashflow;
         xirrEl.textContent = `¥${net.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
         xirrEl.className = 'metric-value ' + (net >= 0 ? 'cash-positive' : 'cash-negative');
-        hintEl.style.display = '';
+        showMetricsHint('XIRR 需要有效的投入和回收金额。仍在持有的投资品，请新增「当前市值」记录；累计收回只统计实际现金收入。');
     } else {
-        xirrLabel.textContent = '年化收益率 (XIRR)';
         xirrEl.textContent = '--';
-        xirrEl.className = 'metric-value';
-        hintEl.style.display = 'none';
+        if (period) showMetricsHint('该区间暂无法计算年化收益率，请检查投入、回收及估值记录；仍可查看已算出的区间盈亏。');
     }
-
     document.getElementById('total-invested').textContent = `¥${data.total_invested.toLocaleString()}`;
     document.getElementById('total-returned').textContent = `¥${data.total_returned.toLocaleString()}`;
+}
+
+async function fetchMetrics() {
+    const request = ++metricsRequest;
+    const params = getFilterParams();
+    try {
+        const resp = await fetch('/api/xirr?' + params.toString());
+        const data = await resp.json();
+        if (request !== metricsRequest) return;
+        if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '收益计算失败，请检查日期范围');
+        renderMetrics(data);
+    } catch (error) {
+        if (request !== metricsRequest) return;
+        document.getElementById('xirr-value').textContent = '--';
+        document.getElementById('total-invested').textContent = '--';
+        document.getElementById('total-returned').textContent = '--';
+        document.getElementById('xirr-period-details').hidden = true;
+        showMetricsHint(error.message || '无法连接本地服务');
+    }
 }
 
 async function fetchTransactions(page = 1) {
@@ -241,6 +295,7 @@ async function fetchTransactions(page = 1) {
 
 function resetForm() {
     editingId = null;
+    formAccountId = 1;
     document.getElementById('dialog-title').textContent = '新增交易记录';
     document.getElementById('tx-id').value = '';
     form.reset();
@@ -253,6 +308,7 @@ function resetForm() {
 
 function openEdit(tx) {
     editingId = tx.id;
+    formAccountId = tx.account_id || 1;
     document.getElementById('dialog-title').textContent = '编辑交易记录';
     document.getElementById('tx-id').value = tx.id;
     setDateFields(tx.date);
@@ -284,6 +340,7 @@ function getFormData() {
 
     return {
         date: getAssembledDate(),
+        account_id: formAccountId,
         symbol: document.getElementById('tx-symbol').value.trim(),
         business_type: bizType || (marketValue != null ? '当前市值' : null),
         cash_flow: cashFlow,
