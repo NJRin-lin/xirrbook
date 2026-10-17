@@ -7,6 +7,7 @@ from fastapi.responses import Response
 
 from backend.csv_import import parse_and_validate
 from backend.database import get_db
+from backend.valuation import normalize_valuation, VALUATION_TYPES
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -112,6 +113,10 @@ def get_transaction(transaction_id: int):
 
 @router.post("", status_code=201)
 def create_transaction(data: dict):
+    try:
+        data = normalize_valuation(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     conn = get_db()
     cursor = conn.cursor()
     biz_type = data.get("business_type") or None
@@ -168,11 +173,18 @@ async def import_csv(
     skipped = 0
 
     for row in result["rows"]:
-        # Dedup: same date + symbol + business_type + cash_flow
-        existing = cursor.execute(
-            "SELECT id FROM transactions WHERE date=? AND symbol=? AND business_type=? AND cash_flow=?",
-            (row["date"], row["symbol"], row["business_type"], row["cash_flow"]),
-        ).fetchone()
+        # Snapshot dedup also recognizes old clients' positive cash flows.
+        if row["business_type"] in VALUATION_TYPES:
+            existing = cursor.execute(
+                "SELECT id FROM transactions WHERE date=? AND symbol=? "
+                "AND business_type IN ('当前市值', '市值更新') AND COALESCE(market_value, cash_flow)=?",
+                (row["date"], row["symbol"], row["market_value"]),
+            ).fetchone()
+        else:
+            existing = cursor.execute(
+                "SELECT id FROM transactions WHERE date=? AND symbol=? AND business_type=? AND cash_flow=? AND market_value IS ?",
+                (row["date"], row["symbol"], row["business_type"], row["cash_flow"], row.get("market_value")),
+            ).fetchone()
 
         if existing:
             skipped += 1
@@ -216,7 +228,15 @@ def update_transaction(transaction_id: int, data: dict):
         raise HTTPException(status_code=404, detail="记录不存在")
 
     allowed = ["date", "symbol", "business_type", "cash_flow", "shares", "price", "market_value", "notes", "account_id"]
-    updates = {k: v for k, v in data.items() if k in allowed and v is not None}
+    nullable = {"shares", "price", "market_value", "notes"}
+    updates = {k: v for k, v in data.items() if k in allowed and (v is not None or k in nullable)}
+    try:
+        merged = normalize_valuation({**dict(existing), **updates})
+    except ValueError as exc:
+        conn.close()
+        raise HTTPException(status_code=422, detail=str(exc))
+    if merged["business_type"] == "当前市值":
+        updates.update(business_type="当前市值", cash_flow=0.0, market_value=merged["market_value"])
     if not updates:
         conn.close()
         return dict(existing)

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query
 from scipy.optimize import newton
 
 from backend.database import get_db
+from backend.valuation import actual_cash_flow, valuation_amount
 
 router = APIRouter(prefix="/xirr", tags=["xirr"])
 
@@ -15,7 +16,7 @@ def xirr(cashflows: list) -> Optional[float]:
     Returns the annualized rate as a decimal (e.g. 0.15 = 15%), or None if
     the calculation does not converge or there are insufficient cash flows.
     """
-    if len(cashflows) < 2:
+    if len(cashflows) < 2 or len({date for date, _ in cashflows}) < 2:
         return None
 
     amounts = [cf[1] for cf in cashflows]
@@ -76,16 +77,23 @@ def get_xirr(
         params.append(end_date)
 
     rows = cursor.execute(
-        f"SELECT date, cash_flow FROM transactions WHERE {' AND '.join(where)} ORDER BY date ASC",
+        f"SELECT * FROM transactions WHERE {' AND '.join(where)} ORDER BY date ASC, id ASC",
         params,
     ).fetchall()
     conn.close()
 
-    cashflows = [(r["date"], r["cash_flow"]) for r in rows]
+    actual = [(r["date"], actual_cash_flow(r)) for r in rows if actual_cash_flow(r) != 0]
+    # One terminal value per account and instrument, including legacy snapshots.
+    latest = {}
+    for row in rows:
+        value = valuation_amount(row)
+        if value is not None:
+            latest[(row["account_id"], row["symbol"])] = (row["date"], value)
+    cashflows = sorted(actual + list(latest.values()))
     rate = xirr(cashflows)
 
-    total_invested = sum(cf for _, cf in cashflows if cf < 0)
-    total_returned = sum(cf for _, cf in cashflows if cf > 0)
+    total_invested = sum(cf for _, cf in actual if cf < 0)
+    total_returned = sum(cf for _, cf in actual if cf > 0)
 
     return {
         "xirr": rate,
@@ -93,4 +101,5 @@ def get_xirr(
         "total_returned": total_returned,
         "net_cashflow": total_returned + total_invested,
         "cashflow_count": len(cashflows),
+        "market_value": sum(value for _, value in latest.values()),
     }

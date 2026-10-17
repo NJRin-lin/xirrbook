@@ -39,6 +39,12 @@ def init_db():
             FOREIGN KEY (account_id) REFERENCES accounts(id)
         );
 
+        CREATE TABLE IF NOT EXISTS ocr_import_batches (
+            request_id TEXT PRIMARY KEY,
+            payload_hash TEXT NOT NULL,
+            result TEXT NOT NULL
+        );
+
         INSERT OR IGNORE INTO accounts (id, name, currency) VALUES (1, '默认账户', 'CNY');
     """)
     conn.commit()

@@ -765,3 +765,44 @@ dialog::backdrop { background: rgba(0,0,0,0.4); }
     font-size: 11px;
     color: var(--text-secondary);
 }
+
+/* Batch screenshot review */
+#ocr-dialog { width: min(1180px, 96vw); min-width: 0; max-width: 96vw; max-height: 94vh; }
+#ocr-content { min-width: 0; max-width: none; }
+.ocr-heading, .ocr-review-toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.ocr-heading h3 { margin: 0 !important; }
+.ocr-help { font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin: 10px 0; }
+.ocr-progress, #ocr-review-summary { font-size: 13px; margin: 12px 0; }
+.ocr-file-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px; max-height: 150px; overflow-y: auto; margin-bottom: 14px; }
+.ocr-file { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; min-width: 0; padding: 5px; }
+.ocr-file.selected { border-color: var(--accent); background: var(--bg); }
+.ocr-file-select { flex: 1; min-width: 0; border: 0; padding: 4px; background: transparent; text-align: left; color: var(--text); cursor: pointer; overflow-wrap: anywhere; }
+.ocr-file-select span, .ocr-records-table small { display: block; font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5; }
+#ocr-content .ocr-layout { grid-template-columns: 1fr 1fr; }
+#ocr-content .ocr-image-pane { height: 240px; overflow: auto; }
+#ocr-preview-img { max-height: 230px; }
+#ocr-content .ocr-text-pane pre { height: 218px; max-height: 218px; }
+.ocr-review-toolbar { justify-content: flex-start; font-size: 12px; }
+.ocr-review-toolbar select { padding: 6px; background: var(--card-bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; }
+#ocr-content .ocr-symbol-bar label { flex-wrap: wrap; }
+#ocr-content .import-table-wrap { max-height: 340px; overflow: auto; }
+.ocr-records-table { min-width: 900px; }
+.ocr-records-table td { padding: 8px; vertical-align: top; }
+.ocr-records-table td:first-child { min-width: 160px; max-width: 220px; }
+.ocr-records-table td:nth-child(2) { width: 128px; }
+.ocr-records-table td:nth-child(3) { min-width: 190px; }
+.ocr-records-table td:nth-child(5) { width: 120px; }
+.ocr-records-table input, .ocr-records-table select { border-color: var(--border); background: var(--card-bg); padding: 7px; }
+.ocr-source-button { background: none; border: 0; color: var(--accent); cursor: pointer; text-align: left; font-size: 12px; }
+.ocr-attention { background: rgba(255, 179, 0, .08); }
+.ocr-skipped { opacity: .6; }
+.ocr-error { color: var(--danger); font-size: 13px; margin: 12px 0; }
+.ocr-success { color: var(--text); font-size: 13px; margin: 12px 0; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 700px) {
+    #ocr-content { padding: 16px; }
+    #ocr-content .ocr-layout { grid-template-columns: 1fr; }
+    #ocr-content .ocr-symbol-bar input { width: 100%; }
+}
+#ocr-content .ocr-heading { position: sticky; top: 0; z-index: 4; padding: 8px 0; background: var(--card-bg); }
+#ocr-content > .dialog-actions { position: sticky; bottom: 0; z-index: 4; padding: 12px 0; background: var(--card-bg); border-top: 1px solid var(--border); }
