@@ -1,7 +1,15 @@
 const assert = require('node:assert/strict');
-const {keyOf, issues, applyReview, needsReview, resolveDuplicates, escapeHTML} = require('../frontend/ocr.js');
+const {keyOf, issues, applyReview, needsReview, resolveDuplicates, escapeHTML, normalizeDateInput} = require('../frontend/ocr.js');
 const row = updates => ({date:'2025-01-01',symbol:'易方达蓝筹精选',business_type:'买入',cash_flow:1000,decision:'keep',...updates});
 const result = (index, db = [], batch = []) => ({index,errors:[],database_ids:db,batch_indexes:batch});
+assert.equal(normalizeDateInput('20261017'), '2026-10-17');
+assert.equal(normalizeDateInput('２０２６１０１７'), '2026-10-17');
+assert.equal(normalizeDateInput('2026-10-17'), '2026-10-17');
+assert.equal(normalizeDateInput('202610'), '202610');
+assert.equal(normalizeDateInput(''), '');
+assert.equal(issues(row({date: normalizeDateInput('20240229')})).length, 0);
+assert.ok(issues(row({date: normalizeDateInput('20260230')})).length);
+assert.ok(issues(row({date: normalizeDateInput('20261301')})).length);
 assert.equal(issues(row()).length,0);
 assert.ok(issues(row({date:'2025-02-30'})).length);
 assert.ok(issues(row({cash_flow:null})).length);
