@@ -314,7 +314,9 @@ AMOUNT_TOKEN = re.compile(
 
 STOCK_CODE = re.compile(r"\b(\d{6})\b")  # A-share 6-digit code
 STOCK_TICKER = re.compile(r"\b([A-Z]{1,5})\b")  # US stock ticker
-FUND_NAME = re.compile(r"([一-鿿]{4,30}(?:精选|蓝筹|成长|混合|债券|指数|货币|股票|联接|LOF|FOF|ETF)?[A-C]?)")
+# A fund name can mix Chinese, acronyms, index digits and a share class.
+# Keep the full token: e.g. 博时黄金ETF联接C or 南方中证500ETF联接A.
+FUND_NAME = re.compile(r"([一-鿿]{4,40}(?:[A-Za-z0-9（(][一-鿿A-Za-z0-9（）)·-]{0,60})?)")
 
 TYPE_KEYWORDS = {
     "买入": ["买入", "申购", "买", "认购", "buy", "定投"],
@@ -602,7 +604,7 @@ def _extract_symbol(lines, full_text):
             if not (code.startswith("202") or code.startswith("203")):
                 return code
     # Fallback: ticker
-    exclude = {"ETF", "LOF", "FOF", "A", "B", "C", "E"}
+    exclude = {"ETF", "LOF", "FOF", "QDII", "REITS", "A", "B", "C", "D", "E"}
     for line in lines:
         for m in STOCK_TICKER.finditer(line):
             t = m.group(1)
@@ -616,8 +618,10 @@ def _extract_symbol(lines, full_text):
             exclude_words.add(kw)
     exclude_words.update(["交易记录", "交易明细", "基金详情", "历史交易", "确认信息", "基金名称"])
 
-    search_lines = lines[:5] + lines  # top lines first, then all
-    for line in search_lines:
+    for line in lines:
+        # Vision sometimes inserts spaces around acronyms or the share class.
+        line = re.sub(r"\s*(ETF|LOF|FOF|QDII|REITs)\s*", r"\1", line)
+        line = re.sub(r"(?<=[一-鿿）)])\s+([A-E])(?=\s|$)", r"\1", line)
         m = FUND_NAME.search(line)
         if m:
             name = m.group(1)
