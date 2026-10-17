@@ -2,6 +2,8 @@ import csv
 import io
 from typing import Optional
 
+from backend.valuation import normalize_valuation, VALUATION_TYPES
+
 COLUMN_ALIASES = {
     "date": ["日期", "date", "交易日期", "trade date", "时间"],
     "symbol": ["标的", "symbol", "代码", "code", "ticker", "stock code", "名称", "name", "证券名称", "证券代码"],
@@ -102,7 +104,7 @@ def parse_and_validate(
                 parsed["cash_flow"] = float(val)
             except ValueError:
                 row_errors.append(f"现金流格式错误: {raw_row[cf_hdr]}")
-        else:
+        elif parsed.get("business_type") not in VALUATION_TYPES:
             row_errors.append("缺少现金流")
 
         # Optional fields
@@ -120,6 +122,12 @@ def parse_and_validate(
         notes_hdr = mapping.get("notes")
         if notes_hdr and raw_row.get(notes_hdr):
             parsed["notes"] = raw_row[notes_hdr].strip()
+
+        if not row_errors:
+            try:
+                parsed = normalize_valuation(parsed)
+            except ValueError as exc:
+                row_errors.append(str(exc))
 
         if row_errors:
             errors.append({"row": row_num, "msgs": row_errors})

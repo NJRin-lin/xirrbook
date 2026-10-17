@@ -1,6 +1,8 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from starlette.concurrency import run_in_threadpool
 from backend.ocr_parser import ocr_image, parse_trade_text
+from backend.ocr_batch import review_batch, import_batch
 
 router = APIRouter(prefix="/ocr", tags=["ocr"])
 
@@ -17,18 +19,20 @@ async def ocr_upload(file: UploadFile = File(...)):
     if len(contents) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="图片大小不能超过 20MB")
 
-    result = ocr_image(contents)
+    try:
+        result = await run_in_threadpool(ocr_image, contents)
+    except Exception as exc:
+        raise HTTPException(422, detail="图片识别失败，请检查图片格式或重试：" + str(exc)[:200])
     raw_text = result["text"]
     engine = result["engine"]
 
     if not raw_text:
         raise HTTPException(
-            status_code=500,
-            detail=f"OCR 识别失败（{engine or '无可用引擎'}）：{result['error']}。"
-                   "Vision 为 macOS 内置能力，请确认系统正常；Tesseract 可另行安装作为兜底。",
+            status_code=422,
+            detail=f"OCR 未识别到有效文字：{result['error']}。请使用清晰、包含完整交易记录的截图后重试。",
         )
 
-    parsed = parse_trade_text(raw_text)
+    parsed = parse_trade_text(raw_text, include_incomplete=True)
 
     return {
         "success": True,
@@ -45,3 +49,13 @@ async def ocr_upload(file: UploadFile = File(...)):
         "records": parsed.get("records", []),
         "raw_lines": parsed.get("raw_lines", []),
     }
+
+
+@router.post("/review")
+def review_records(payload: dict):
+    return review_batch(payload)
+
+
+@router.post("/import")
+def import_records(payload: dict):
+    return import_batch(payload)

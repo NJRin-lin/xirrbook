@@ -60,9 +60,6 @@ def ocr_image(file_bytes: bytes, lang: str = "chi_sim+eng") -> dict:
 
 def _clean_ocr_text(text: str) -> str:
     """Preprocess OCR output: remove noise lines, arrow symbols, etc."""
-    import re
-    date_like = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}")
-
     lines = text.split("\n")
     cleaned = []
     for line in lines:
@@ -71,7 +68,7 @@ def _clean_ocr_text(text: str) -> str:
         if not line:
             continue
         # Always keep date lines (critical for parsing)
-        if date_like.search(line):
+        if _extract_date_from_line(line) or re.fullmatch(r"[+\-]?\s*[¥￥$]?\s*\d[\d,.]*\s*[元]?", line):
             cleaned.append(line)
             continue
         # Skip status bar / noise lines (no Chinese, no date, no transaction keywords)
@@ -309,12 +306,11 @@ DATE_PATTERNS = [
     re.compile(r"(\d{4})(\d{2})[-:/](\d{2})"),  # 202402-20 (Vision format)
 ]
 
-AMOUNT_PATTERNS = [
-    re.compile(r"[+\-]?\s*[¥￥$]?\s*([\d,]+\.\d{2})"),           # +1,000.00, ¥500.00, -300.00
-    re.compile(r"([\d]+(?:\.[\d]{3})*\.\d{2})"),                 # 12.000.00 (dots as thousand sep)
-    re.compile(r"([\d,]+\.\d{2})\s*[¥￥元]?"),                    # 1,000.00元
-    re.compile(r"[+\-]?\s*[¥￥$]?\s*([\d,]+)(?:\s|$)"),          # +1000, ¥5000 (integer amounts)
-]
+# Match a whole amount token before normalizing separators. Never take a
+# partial decimal from a dot-separated thousands amount (12.000.00).
+AMOUNT_TOKEN = re.compile(
+    r"(?<![\d.,])([+\-]?\s*[¥￥$]?\s*\d[\d,.]*)(?![\d.,])"
+)
 
 STOCK_CODE = re.compile(r"\b(\d{6})\b")  # A-share 6-digit code
 STOCK_TICKER = re.compile(r"\b([A-Z]{1,5})\b")  # US stock ticker
@@ -333,7 +329,7 @@ SHARES_AFTER = re.compile(r"(?:数量|成交数量|股数|份额|shares|qty)\s*[
 PRICE_AFTER = re.compile(r"(?:价格|成交价|成交价格|均价|price)\s*[：:]?\s*([\d,]+\.?\d*)", re.IGNORECASE)
 
 
-def parse_trade_text(raw_text: str) -> dict:
+def parse_trade_text(raw_text: str, include_incomplete: bool = False) -> dict:
     lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
     full_text = " ".join(lines)
 
@@ -341,7 +337,7 @@ def parse_trade_text(raw_text: str) -> dict:
     global_symbol = _extract_symbol(lines, full_text)
 
     # Try multi-record extraction: each date starts a new record
-    records = _extract_records(lines, full_text, global_symbol)
+    records = _extract_records(lines, full_text, global_symbol, include_incomplete)
 
     result = {
         "records": records,
@@ -357,7 +353,7 @@ def parse_trade_text(raw_text: str) -> dict:
     return result
 
 
-def _extract_records(lines, full_text, global_symbol=None):
+def _extract_records(lines, full_text, global_symbol=None, include_incomplete=False):
     """Type-keyword-anchored extraction — more robust than date-anchored."""
     # Find type keyword positions
     type_spots = []
@@ -369,13 +365,15 @@ def _extract_records(lines, full_text, global_symbol=None):
     records = []
     used_dates = set()
 
-    for ti, raw_type, type_line in type_spots:
+    for spot_index, (ti, raw_type, type_line) in enumerate(type_spots):
+        previous_type = type_spots[spot_index - 1][0] if spot_index else -1
+        next_type = type_spots[spot_index + 1][0] if spot_index + 1 < len(type_spots) else len(lines)
         # Find nearest date within ±4 lines of this type
         date_val = None
         date_pos = None
         for offset in range(0, 5):
             for d in [ti - offset, ti + offset]:
-                if 0 <= d < len(lines) and d not in used_dates:
+                if previous_type < d < next_type and d not in used_dates:
                     dv = _extract_date_from_line(lines[d])
                     if dv:
                         date_val = dv
@@ -384,19 +382,20 @@ def _extract_records(lines, full_text, global_symbol=None):
             if date_val:
                 break
 
-        if not date_val:
+        if not date_val and not include_incomplete:
             continue
+        anchor = date_pos if date_pos is not None else ti
 
         # Build search window: type line through date line + 2 extra
-        lo = min(ti, date_pos)
-        hi = min(len(lines), max(ti, date_pos) + 2)
+        lo = min(ti, anchor)
+        hi = min(next_type, max(ti, anchor) + (2 if date_val else 5))
         window = lines[lo:hi]
         window_text = " ".join(window)
 
         # Cancel check: only inspect this record's own lines (type → date),
         # NOT lines after the date — otherwise the next record's "交易关闭"
         # text gets swept into this window and this record is wrongly dropped.
-        cancel_scope = lines[lo:date_pos + 1]
+        cancel_scope = lines[lo:max(ti, anchor) + 1]
         if any(kw in " ".join(cancel_scope) for kw in CANCEL_KEYWORDS):
             used_dates.add(date_pos)
             continue
@@ -404,15 +403,17 @@ def _extract_records(lines, full_text, global_symbol=None):
         # Amount from window
         amts = _extract_all_amounts(window)
         amount_val = amts[0] if amts else None
-        if amount_val is None:
+        # Reserve this record's date even when its amount is missing.
+        used_dates.add(date_pos)
+        if amount_val is None and not include_incomplete:
             continue
 
         display_type = "买入" if raw_type == "定投" else raw_type
 
-        if display_type in ("买入", "股息再投资"):
+        if amount_val is not None and display_type in ("买入", "股息再投资"):
             amount_val = abs(amount_val)
 
-        local_symbol = _extract_symbol(window, window_text) or global_symbol
+        local_symbol = global_symbol or _extract_symbol(window, window_text)
 
         records.append({
             "date": date_val,
@@ -426,7 +427,7 @@ def _extract_records(lines, full_text, global_symbol=None):
         used_dates.add(date_pos)
 
     # Fallback: date-anchored if no type keywords found
-    if not records:
+    if not type_spots:
         return _extract_records_fallback(lines, full_text, global_symbol)
 
     return records
@@ -521,8 +522,8 @@ def _extract_date_from_line(line):
         if m:
             try:
                 y, mth, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                if 2020 <= y <= 2030 and 1 <= mth <= 12 and 1 <= d <= 31:
-                    return f"{y:04d}-{mth:02d}-{d:02d}"
+                if 1900 <= y <= 2100:
+                    return datetime(y, mth, d).strftime("%Y-%m-%d")
             except (ValueError, IndexError):
                 continue
     return None
@@ -538,10 +539,10 @@ def _extract_date_from_lines(lines):
 
 def _extract_type_from_lines(lines):
     text = " ".join(lines).lower()
-    for ttype, keywords in TYPE_KEYWORDS.items():
-        for kw in keywords:
-            if kw in text:
-                return ttype
+    matches = [(len(keyword), kind) for kind, keywords in TYPE_KEYWORDS.items()
+               for keyword in keywords if keyword in text]
+    if matches:
+        return max(matches, key=lambda match: match[0])[1]
     return None
 
 
@@ -563,22 +564,28 @@ def _normalize_amount(raw_str):
 
 
 def _extract_all_amounts(lines):
-    """Extract all valid amount candidates from lines, return list."""
+    """Read amounts without treating dates, times or fund codes as money."""
     candidates = []
-    for line in lines:
-        # Skip timestamp-only lines (colon but no 元/¥ after it)
-        if ":" in line:
-            # Unless there's a currency indicator after the timestamp
-            if not ("元" in line.split(":")[-1] or "¥" in line.split(":")[-1]):
-                continue
-        chinese_chars = sum(1 for c in line if '一' <= c <= '鿿')
-        if chinese_chars > len(line) * 0.4:
+    for original in lines:
+        line = original
+        for pattern in DATE_PATTERNS:
+            line = pattern.sub(" ", line)
+        line = re.sub(r"\b\d{1,2}[:：]\d{2}(?:[:：]\d{2})?\b", " ", line)
+        line = re.sub(r"(?:代码|证券代码|基金代码)\s*[:：]?\s*\d{6}", " ", line)
+        if any(label in line for label in ("份额", "股数", "成交数量", "成交价", "价格")):
             continue
-        for pat in AMOUNT_PATTERNS:
-            for m in pat.finditer(line):
-                num = _normalize_amount(m.group(1))
-                if num is not None:
-                    candidates.append(num)
+        # Accept standalone amounts and currency/type/amount-labelled lines.
+        if re.search(r"[一-鿿]", line) and not (
+            re.search(r"[¥￥$元]|金额|现金流", line) or _extract_type_from_lines([line])
+        ):
+            continue
+        for match in AMOUNT_TOKEN.finditer(line):
+            token = re.sub(r"[¥￥$\s]", "", match.group(1))
+            if not re.fullmatch(r"[+\-]?(?:\d+|\d+\.\d{2}|\d{1,3}(?:,\d{3})+(?:\.\d{2})?|\d{1,3}(?:\.\d{3})+\.\d{2})", token):
+                continue
+            value = _normalize_amount(token)
+            if value is not None:
+                candidates.append(abs(value))
     return candidates
 
 
