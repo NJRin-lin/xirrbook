@@ -294,7 +294,7 @@ def _ocr_tesseract(file_bytes: bytes, lang: str = "chi_sim+eng") -> str:
 
     # OEM 1 = LSTM neural net only (best for Chinese)
     # PSM 6 = assume uniform block of text, read rows left-to-right
-    text = pytesseract.image_to_string(img, lang=lang, config="--oem 1 --psm 6")
+    text = pytesseract.image_to_string(img, lang=lang, config="--oem 1 --psm 6", timeout=45)
     return text
 
 
@@ -317,6 +317,18 @@ STOCK_TICKER = re.compile(r"\b([A-Z]{1,5})\b")  # US stock ticker
 # A fund name can mix Chinese, acronyms, index digits and a share class.
 # Keep the full token: e.g. 博时黄金ETF联接C or 南方中证500ETF联接A.
 FUND_NAME = re.compile(r"([一-鿿]{4,40}(?:[A-Za-z0-9（(][一-鿿A-Za-z0-9（）)·-]{0,60})?)")
+
+
+def _fund_title(line):
+    """Recognize a standalone fund heading, never a transaction/amount line."""
+    line = re.sub(r"[（(]\d{6}[）)]", "", line).strip()
+    line = re.sub(r"\s*(ETF|LOF|FOF|QDII|REITs)\s*", r"\1", line)
+    line = re.sub(r"(?<=[一-鿿）)])\s+([A-E])(?=\s|$)", r"\1", line)
+    if not any(word in line for word in ('基金', 'ETF', 'LOF', 'FOF', 'QDII', '联接', '指数', '混合', '债券')):
+        return None
+    if line in ('基金名称', '基金详情', '基金代码'):
+        return None
+    return line if FUND_NAME.fullmatch(line) else None
 
 TYPE_KEYWORDS = {
     "买入": ["买入", "申购", "买", "认购", "buy", "定投"],
@@ -360,6 +372,8 @@ def _extract_records(lines, full_text, global_symbol=None, include_incomplete=Fa
     # Find type keyword positions
     type_spots = []
     for i, line in enumerate(lines):
+        if _fund_title(line):
+            continue  # e.g. 红利低波动ETF is a heading, not a dividend.
         t = _extract_type_from_lines([line])
         if t:
             type_spots.append((i, t, line))
@@ -374,7 +388,7 @@ def _extract_records(lines, full_text, global_symbol=None, include_incomplete=Fa
         date_val = None
         date_pos = None
         for offset in range(0, 5):
-            for d in [ti - offset, ti + offset]:
+            for d in [ti + offset, ti - offset]:
                 if previous_type < d < next_type and d not in used_dates:
                     dv = _extract_date_from_line(lines[d])
                     if dv:
@@ -405,6 +419,9 @@ def _extract_records(lines, full_text, global_symbol=None, include_incomplete=Fa
         # Amount from window
         amts = _extract_all_amounts(window)
         amount_val = amts[0] if amts else None
+        share_dividend = re.search(r"(?:分红|红利)\s*([\d,.]+)\s*份", type_line)
+        if share_dividend:
+            amount_val = None  # Units cannot be converted to money without a price.
         # Reserve this record's date even when its amount is missing.
         used_dates.add(date_pos)
         if amount_val is None and not include_incomplete:
@@ -417,13 +434,23 @@ def _extract_records(lines, full_text, global_symbol=None, include_incomplete=Fa
 
         local_symbol = global_symbol or _extract_symbol(window, window_text)
 
+        trade_time = None
+        if date_pos is not None:
+            clock_line = lines[date_pos]
+            for pattern in DATE_PATTERNS:
+                clock_line = pattern.sub(" ", clock_line)
+            clock = re.search(r"(?<!\d)([01]?\d|2[0-3])[:：]([0-5]\d)(?:[:：]([0-5]\d))?(?!\d)", clock_line)
+            if clock:
+                trade_time = f"{int(clock.group(1)):02d}:{clock.group(2)}" + (f":{clock.group(3)}" if clock.group(3) else '')
         records.append({
             "date": date_val,
+            "trade_time": trade_time,
             "symbol": local_symbol,
             "business_type": display_type,
             "cash_flow": amount_val,
             "shares": _extract_number(SHARES_AFTER, window, window_text),
             "price": _extract_number(PRICE_AFTER, window, window_text),
+            **({'ocr_warning': '分红以份额显示，请核对分红方式并补充现金金额或跳过；不能将份额当作金额'} if share_dividend else {}),
         })
 
         used_dates.add(date_pos)
@@ -569,6 +596,8 @@ def _extract_all_amounts(lines):
     """Read amounts without treating dates, times or fund codes as money."""
     candidates = []
     for original in lines:
+        if _fund_title(original):
+            continue
         line = original
         for pattern in DATE_PATTERNS:
             line = pattern.sub(" ", line)
@@ -576,6 +605,7 @@ def _extract_all_amounts(lines):
         line = re.sub(r"(?:代码|证券代码|基金代码)\s*[:：]?\s*\d{6}", " ", line)
         if any(label in line for label in ("份额", "股数", "成交数量", "成交价", "价格")):
             continue
+        line = re.sub(r"[+\-]?\d[\d,.]*\s*(?:份|股)", " ", line)
         # Accept standalone amounts and currency/type/amount-labelled lines.
         if re.search(r"[一-鿿]", line) and not (
             re.search(r"[¥￥$元]|金额|现金流", line) or _extract_type_from_lines([line])
@@ -596,6 +626,10 @@ def _extract_amounts_from_lines(lines):
 
 
 def _extract_symbol(lines, full_text):
+    for line in lines:
+        title = _fund_title(line)
+        if title:
+            return title
     # Prefer 6-digit stock code (exclude date-like patterns: 2020xx-2030xx)
     for line in lines:
         m = STOCK_CODE.search(line)

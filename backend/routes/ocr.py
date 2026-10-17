@@ -1,6 +1,8 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from starlette.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
+from backend.video_import import receive_video, job_snapshot, frame_path, delete_job
 from backend.ocr_parser import ocr_image, parse_trade_text
 from backend.ocr_batch import review_batch, import_batch
 
@@ -59,3 +61,25 @@ def review_records(payload: dict):
 @router.post("/import")
 def import_records(payload: dict):
     return import_batch(payload)
+
+
+@router.post("/video", status_code=202)
+async def upload_video(file: UploadFile = File(...)):
+    job_id = await receive_video(file)
+    return {"job_id": job_id}
+
+
+@router.get("/video/{job_id}")
+def video_status(job_id: str):
+    return job_snapshot(job_id)
+
+
+@router.get("/video/{job_id}/frames/{frame_id}")
+def video_frame(job_id: str, frame_id: int):
+    return FileResponse(frame_path(job_id, frame_id), media_type="image/png")
+
+
+@router.delete("/video/{job_id}")
+def close_video(job_id: str):
+    delete_job(job_id)
+    return {"closed": True}

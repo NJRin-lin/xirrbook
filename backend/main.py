@@ -4,11 +4,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.database import init_db
+from backend.video_import import shutdown_jobs
 from backend.routes import ocr, portfolio, transactions, xirr
 
 app = FastAPI(title="投资回报率记录工具", version="0.1.0")
 
 init_db()
+app.add_event_handler("shutdown", shutdown_jobs)
 
 app.include_router(transactions.router, prefix="/api")
 app.include_router(xirr.router, prefix="/api")
