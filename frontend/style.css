@@ -815,3 +815,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 #xirr-missing-values .btn { margin-left: 6px; font-size: 12px; }
 
 .scope-note { font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 6px; }
+#ocr-video-details { margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
+#ocr-preview-video { display: block; width: 100%; max-height: 320px; margin-top: 8px; background: #111; }
+.ocr-source-button + .ocr-source-button { display: block; margin-top: 5px; }
+#ocr-frame-bar { margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
+#ocr-frame-select { padding: 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--card-bg); color: var(--text); }
+#ocr-video-summary { margin-top: 6px; white-space: pre-line; line-height: 1.6; }

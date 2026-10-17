@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>投资回报率记录</title>
-    <link rel="stylesheet" href="style.css?v=28">
+    <link rel="stylesheet" href="style.css?v=29">
     <!-- ECharts 本地化：下载自 cdn.jsdelivr.net (echarts@5.5.0)，离线可用 -->
     <script src="vendor/echarts.min.js"></script>
 </head>
@@ -82,6 +82,7 @@
                     <div class="panel-header-actions">
                         <button class="btn" id="btn-ocr">截图导入</button>
                         <button class="btn" id="btn-ocr-multi">批量截图</button>
+                        <button class="btn" id="btn-ocr-video">录屏导入</button>
                         <button class="btn" id="btn-import">导入 CSV</button>
                         <button class="btn" id="btn-export">导出 CSV</button>
                         <button class="btn btn-danger" id="btn-clear-all">一键清空</button>
@@ -158,26 +159,31 @@
         <input type="file" id="ocr-file-input" accept="image/*" style="display:none">
         <input type="file" id="ocr-multi-input" accept="image/*" multiple style="display:none">
 
+        <input type="file" id="ocr-video-input" accept=".mp4,.mov,.m4v,video/mp4,video/quicktime" multiple hidden>
+
         <dialog id="ocr-dialog" aria-labelledby="ocr-title">
             <div id="ocr-content">
-                <div class="ocr-heading"><h3 id="ocr-title">支付宝基金 · 截图导入</h3><button type="button" class="btn" id="btn-ocr-add-files">继续添加图片</button></div>
-                <p class="ocr-help">滚动交易列表，连续截普通截图即可，无需拼成长图。允许截图重叠，导入前会提示疑似重复。图片仅在本机识别。</p>
-                <input type="file" id="ocr-add-input" accept="image/png,image/jpeg,image/webp,image/bmp,image/gif" multiple hidden>
+                <div class="ocr-heading"><h3 id="ocr-title">支付宝基金 · 图片与录屏导入</h3><button type="button" class="btn" id="btn-ocr-add-files">继续添加文件</button></div>
+                <p class="ocr-help">截图可连续截取并适当重叠；录屏请慢速滚动，每秒不超过半屏，开始和结束各停留 1 秒。支持 MP4/MOV/M4V，单段最多 3 分钟、200MB。文件仅在本机处理。</p>
+                <input type="file" id="ocr-add-input" accept="image/png,image/jpeg,image/webp,image/bmp,image/gif,.mp4,.mov,.m4v" multiple hidden>
                 <div id="ocr-progress" class="ocr-progress" role="status" aria-live="polite"></div>
-                <div id="ocr-file-list" class="ocr-file-list" aria-label="图片识别进度"></div>
+                <div id="ocr-file-list" class="ocr-file-list" aria-label="文件识别进度"></div>
+                <div id="ocr-frame-bar" hidden><label>核对画面 <select id="ocr-frame-select" aria-label="核对画面"></select></label><p id="ocr-video-summary"></p></div>
                 <div class="ocr-layout">
                     <div class="ocr-image-pane"><a id="ocr-image-link" target="_blank" rel="noopener"><img id="ocr-preview-img" alt="选中截图，点击查看原图"></a></div>
                     <div class="ocr-text-pane"><h4 id="ocr-source-name">选择图片查看原图和识别文字</h4><pre id="ocr-raw-text"></pre></div>
                 </div>
+                <details id="ocr-video-details" hidden><summary>播放原始录屏（记录来源可定位时间点）</summary><video id="ocr-preview-video" controls muted playsinline preload="metadata"></video></details>
                 <div class="ocr-symbol-bar">
-                    <label>统一标的 <input type="text" id="ocr-global-symbol" placeholder="例如：易方达蓝筹精选混合"><button type="button" class="btn" id="btn-ocr-apply-symbol">应用到所选图片的记录</button></label>
+                    <label>统一标的 <input type="text" id="ocr-global-symbol" placeholder="例如：易方达蓝筹精选混合"><button type="button" class="btn" id="btn-ocr-apply-symbol">应用到所选文件的记录</button></label>
                 </div>
                 <div class="ocr-review-toolbar">
                     <label>记录范围 <select id="ocr-filter"><option value="all">全部记录</option><option value="issues">待核对</option><option value="duplicates">疑似重复</option><option value="invalid">字段缺失或错误</option></select></label>
                     <button type="button" class="btn" id="btn-ocr-resolve-duplicates">疑似重复仅保留首条</button>
+                    <button type="button" class="btn" id="btn-ocr-skip-invalid">跳过字段不完整记录</button>
                     <button type="button" class="btn" id="btn-ocr-review">重新检查</button>
                 </div>
-                <p class="ocr-help">同日期、标的和金额只代表“疑似重复”。可逐条选择保留；批量处理会跳过库内已有记录，并在本批相同记录中只保留首条。</p>
+                <p class="ocr-help">同日期、标的和金额只代表“疑似重复”。录屏中的跨帧重复候选也需要确认，可展开为原始观察记录。批量处理会跳过库内已有项，并在本批相同记录中只保留首条；金额冲突需逐条核对，真实的多笔相同交易请逐条保留。</p>
                 <div id="ocr-review-summary" role="status" aria-live="polite"></div>
                 <div class="ocr-records-section">
                     <div class="import-table-wrap">
@@ -222,7 +228,7 @@
         </dialog>
     </div>
 
-    <script src="app.js?v=28"></script>
-    <script src="ocr.js?v=28"></script>
+    <script src="app.js?v=29"></script>
+    <script src="ocr.js?v=29"></script>
 </body>
 </html>
