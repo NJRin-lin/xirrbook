@@ -207,6 +207,32 @@ class OCRRegressionTests(unittest.TestCase):
         self.assertEqual(records[0]['date'], '2025-02-01')
         self.assertEqual(records[0]['cash_flow'], 500)
 
+    def test_mixed_fund_names_keep_suffix_and_share_class(self):
+        names = ['博时黄金ETF联接C', '博时黄金ETF联接A', '南方中证500ETF联接A',
+                 '摩根标普500指数（QDII）A', '易方达蓝筹精选混合C']
+        for name in names:
+            with self.subTest(name=name):
+                text = f'交易记录\n买入 {name} 100.00元\n2025-01-01 确认成功'
+                record = parse_trade_text(text, include_incomplete=True)['records'][0]
+                self.assertEqual(record['symbol'], name)
+
+    def test_fund_name_handles_spaces_inserted_by_vision(self):
+        text = '交易记录\n买入 博时黄金 ETF 联接 C 100.00元\n2025-01-01 确认成功'
+        self.assertEqual(parse_trade_text(text)['symbol'], '博时黄金ETF联接C')
+
+    def test_full_fund_name_does_not_absorb_metadata(self):
+        text = ('交易记录\n买入 博时黄金ETF联接C 2025-01-01 09:30 100.00元 确认成功\n'
+                '买入 博时黄金ETF联接C 100.00元\n2025-02-01 09:30 交易关闭\n'
+                '卖出 博时黄金ETF联接C 110.00元\n2025-03-01 09:30 确认成功')
+        records = parse_trade_text(text, include_incomplete=True)['records']
+        self.assertEqual(len(records), 2)
+        self.assertEqual([r['symbol'] for r in records], ['博时黄金ETF联接C'] * 2)
+        self.assertEqual([r['cash_flow'] for r in records], [100, 110])
+
+    def test_stock_code_and_ticker_still_supported(self):
+        self.assertEqual(parse_trade_text('AAPL\nbuy 100.00\n2025-01-01')['symbol'], 'AAPL')
+        self.assertEqual(parse_trade_text('000001\n买入 100.00元\n2025-01-01')['symbol'], '000001')
+
     def test_engine_pipeline_preserves_amount(self):
         with patch('backend.ocr_parser._ocr_vision', return_value=('易方达蓝筹精选\n买入\n1000.00\n2025-01-01', '')):
             result = ocr_image(b'fake image')
