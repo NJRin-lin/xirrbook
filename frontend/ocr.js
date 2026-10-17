@@ -2,6 +2,11 @@
 (function () {
     const TYPES = ['买入', '卖出', '分红入账', '股息再投资', '当前市值'];
     const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
+    function normalizeDateInput(value) {
+        const text = String(value ?? '').trim().replace(/[０-９]/g, digit => String(digit.charCodeAt(0) - 0xFF10));
+        // Format only complete dates; invalid calendar dates remain visible for correction.
+        return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}` : text;
+    }
     function keyOf(row) {
         const kind = row.business_type;
         const value = kind === '当前市值' ? row.market_value : row.cash_flow;
@@ -44,7 +49,7 @@
             seen.add(key);
         });
     }
-    if (typeof module !== 'undefined' && module.exports) module.exports = {keyOf, issues, duplicate, needsReview, applyReview, resolveDuplicates, escapeHTML};
+    if (typeof module !== 'undefined' && module.exports) module.exports = {keyOf, issues, duplicate, needsReview, applyReview, resolveDuplicates, escapeHTML, normalizeDateInput};
     if (typeof document === 'undefined') return;
 
     const $ = id => document.getElementById(id);
@@ -140,7 +145,7 @@
             const fileLabel = row.source == null || row.manual ? '手动补录' : `图 ${row.source + 1} · 第 ${row.sourceRow + 1} 条`;
             return `<tr class="${row.decision === 'skip' ? 'ocr-skipped' : reasons.length ? 'ocr-attention' : ''}">
                 <td>${row.source == null ? fileLabel : `<button type="button" class="ocr-source-button" data-source="${row.source}">${fileLabel}</button>`}<small>${escapeHTML(reasons.join('；') || '字段完整')}</small></td>
-                <td>${field('date','text',row.date,'placeholder="YYYY-MM-DD" aria-label="日期"')}</td>
+                <td>${field('date','text',row.date,'placeholder="YYYYMMDD" inputmode="numeric" maxlength="10" aria-label="日期" title="可直接输入 8 位数字，如 20261017"')}</td>
                 <td>${field('symbol','text',row.symbol,'placeholder="基金名称" aria-label="标的"')}</td>
                 <td><select data-row="${row.id}" data-field="business_type" aria-label="业务类型"><option value="">请选择</option>${TYPES.map(kind => `<option ${row.business_type === kind ? 'selected' : ''}>${kind}</option>`).join('')}</select></td>
                 <td>${field(amountField,'number',row[amountField],'min="0" step="0.01" aria-label="金额"')}${row.business_type === '当前市值' ? '<small>市值快照</small>' : ''}</td>
@@ -181,7 +186,7 @@
         }
     }
     function makeRow(record, source = null, sourceRow = 0) {
-        return {...record, id: nextRow++, source, sourceRow,
+        return {...record, date: normalizeDateInput(record.date), id: nextRow++, source, sourceRow,
             cash_flow: record.cash_flow == null ? null : Math.abs(record.cash_flow),
             decision: 'keep', decisionKey: null, allow_duplicate: false};
     }
@@ -318,6 +323,7 @@
             row.decisionKey = keyOf(row);
             updateSummary(); return;
         }
+        if (field === 'date') target.value = normalizeDateInput(target.value);
         row[field] = ['cash_flow','market_value'].includes(field) ? (target.value === '' ? null : Number(target.value)) : target.value;
         row.review = null;
         changed();
